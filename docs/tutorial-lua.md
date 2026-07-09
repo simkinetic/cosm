@@ -13,8 +13,35 @@ Everything here is exercised by an integration test
 - `lua` on your `PATH` to run the final program.
 - `git` configured with a `user.name` / `user.email`.
 
-For the tutorial we use a local directory as a "remote" via `file://` URLs; in
-real use these would be `git@host:org/repo.git`.
+## Understanding remotes (read this first)
+
+cosm stores everything in **git repositories** ("remotes"):
+
+- the **registry** is one git repo that indexes packages;
+- **each package** (a library or app you publish) is its own git repo.
+
+`cosm registry init` requires the registry's remote to be **empty** — it writes the
+index and pushes the first commit itself.
+
+**This tutorial needs no accounts or servers.** We simulate every remote with a
+local *bare* repository and a `file://` URL, so you can copy-paste and run it all on
+one machine. A "bare" repo is just a git repo with no working files — the form a
+server stores. We create each one explicitly with `git init --bare` right before it
+is used.
+
+**For real use**, swap the local bare repos for repositories on your git host:
+
+| in this tutorial (local) | in real use (e.g. GitHub) |
+|---|---|
+| `git init --bare "$HOME/remotes/foo.git"` | Create a **new empty repo** in the web UI — with **no** README, license, or `.gitignore` (it must be empty). The host stores it bare for you; you never run `git init --bare`. |
+| `file://$HOME/remotes/foo.git` | that repo's clone URL, e.g. `git@github.com:you/foo.git` (SSH is the default) |
+
+Everything else stays identical. First, make a folder to hold the tutorial's local
+remotes:
+
+```sh
+mkdir -p "$HOME/remotes"
+```
 
 ## 1. Initialize the depot
 
@@ -25,13 +52,15 @@ export COSM_DEPOT="$HOME/.cosm"   # if not already set
 
 ## 2. Create a registry
 
-A registry is just a git repo. Create an empty bare repo to act as its remote,
-then initialize it:
+Create the registry's (empty) remote, then initialize the registry into it:
 
 ```sh
 git init --bare "$HOME/remotes/cosmlua.git"
 cosm registry init cosmlua "file://$HOME/remotes/cosmlua.git"
 ```
+
+(In real use you'd skip the `git init --bare` line and instead create an empty
+`cosmlua` repo on your host, then `cosm registry init cosmlua git@host:you/cosmlua.git`.)
 
 ## 3. Write a library
 
@@ -65,12 +94,21 @@ Commit, push to the remote, and cut a release. `cosm release` tags the version
 and pushes it:
 
 ```sh
+# Put the package under version control.
 git init && git add . && git commit -m "initial strutil"
 git branch -M main
-git remote add origin "file://$HOME/remotes/strutil.git"   # a bare repo you created
+
+# Create the package's own (empty) remote and push to it.
+git init --bare "$HOME/remotes/strutil.git"
+git remote add origin "file://$HOME/remotes/strutil.git"
 git push -u origin main
+
+# Cut the release: tags v0.1.0 and pushes it.
 cosm release v0.1.0
 ```
+
+(In real use: create an empty `strutil` repo on your host and use
+`git@host:you/strutil.git` as the origin instead of the local bare repo.)
 
 ## 5. Register it
 
