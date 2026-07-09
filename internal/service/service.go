@@ -93,7 +93,17 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 		})
 	}
 	if len(locs) == 0 {
-		return "", "", fmt.Errorf("%w: %s%s (try 'cosm update')", errs.ErrPackageNotFound, name, filterSuffix(opts))
+		// Fallback: an unpublished package adopted into the dev workspace
+		// (`cosm develop <name> --path <dir>`). Source its identity locally.
+		if opts.Registry == "" {
+			if v, ok, ferr := s.addFromWorkspace(m, projectDir, name, version, opts); ferr != nil {
+				return "", "", ferr
+			} else if ok {
+				return v, "(develop)", nil
+			}
+		}
+		return "", "", fmt.Errorf("%w: %s%s (try 'cosm update', or 'cosm develop %s --path <dir>' for a local package)",
+			errs.ErrPackageNotFound, name, filterSuffix(opts), name)
 	}
 	loc := locs[0]
 	if len(locs) > 1 {
@@ -104,17 +114,46 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 			return "", "", err
 		}
 	}
-	major, err := semver.Major(loc.Specs.Version)
-	if err != nil {
+	if err := s.writeDep(m, projectDir, name, loc.Specs.UUID, loc.Specs.Version, opts); err != nil {
 		return "", "", err
 	}
-	key := semver.UnitKey(loc.Specs.UUID, major)
-	// A compatibility unit may live in `deps` or `testDeps`, never both.
+	return loc.Specs.Version, loc.Registry, nil
+}
+
+// addFromWorkspace declares a dependency on an unpublished package adopted into the
+// dev workspace, reading its identity from the local checkout. ok is false when no
+// workspace unit matches name.
+func (s *Service) addFromWorkspace(m *types.Manifest, projectDir, name, version string, opts AddOpts) (string, bool, error) {
+	we, ok, err := s.workspaceUnit(name, opts.Major)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	man, err := manifest.LoadManifestFromDir(s.D.DevUnit(we.Name, we.Major))
+	if err != nil {
+		return "", true, fmt.Errorf("%w: workspace checkout for %s is unreadable: %v", errs.ErrUsage, name, err)
+	}
+	if version != "" && version != man.Version {
+		return "", true, fmt.Errorf("%w: %s is in development at %s, not %s (omit the version)", errs.ErrUsage, name, man.Version, version)
+	}
+	if err := s.writeDep(m, projectDir, name, man.UUID, man.Version, opts); err != nil {
+		return "", true, err
+	}
+	return man.Version, true, nil
+}
+
+// writeDep records a dependency on <uuid>@<major-of-version> in the manifest and
+// saves it. A compatibility unit may live in `deps` or `testDeps`, never both.
+func (s *Service) writeDep(m *types.Manifest, projectDir, name, uuid, version string, opts AddOpts) error {
+	major, err := semver.Major(version)
+	if err != nil {
+		return err
+	}
+	key := semver.UnitKey(uuid, major)
 	if _, exists := m.Deps[key]; exists {
-		return "", "", fmt.Errorf("%w: %s@v%d already a dependency", errs.ErrUsage, name, major)
+		return fmt.Errorf("%w: %s@v%d already a dependency", errs.ErrUsage, name, major)
 	}
 	if _, exists := m.TestDeps[key]; exists {
-		return "", "", fmt.Errorf("%w: %s@v%d already a test dependency", errs.ErrUsage, name, major)
+		return fmt.Errorf("%w: %s@v%d already a test dependency", errs.ErrUsage, name, major)
 	}
 	target := &m.Deps
 	if opts.Test {
@@ -123,11 +162,8 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 	if *target == nil {
 		*target = map[string]types.Dependency{}
 	}
-	(*target)[key] = types.Dependency{Name: name, Version: loc.Specs.Version}
-	if err := manifest.SaveManifest(filepath.Join(projectDir, "cosm.json"), m); err != nil {
-		return "", "", err
-	}
-	return loc.Specs.Version, loc.Registry, nil
+	(*target)[key] = types.Dependency{Name: name, Version: version}
+	return manifest.SaveManifest(filepath.Join(projectDir, "cosm.json"), m)
 }
 
 // DepChooser is called when a name matches multiple majors on removal.

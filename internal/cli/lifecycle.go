@@ -22,21 +22,29 @@ func developCmd() *cobra.Command {
 			major, _ := cmd.Flags().GetInt("major")
 			branch, _ := cmd.Flags().GetString("branch")
 			tag, _ := cmd.Flags().GetString("tag")
+			devPath, _ := cmd.Flags().GetString("path")
 			if branch != "" && tag != "" {
 				return fmt.Errorf("%w: --branch and --tag are mutually exclusive", errs.ErrUsage)
 			}
+			if devPath != "" && (branch != "" || tag != "") {
+				return fmt.Errorf("%w: --path adopts a local checkout as-is; --branch/--tag don't apply", errs.ErrUsage)
+			}
 			cwd, _ := os.Getwd()
-			path, err := s.Develop(cwd, args[0], major, branch, tag)
+			checkout, err := s.Develop(cwd, args[0], major, branch, tag, devPath)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Developing '%s' at %s\n", args[0], path)
+			fmt.Printf("Developing '%s' at %s\n", args[0], checkout)
+			if devPath != "" {
+				fmt.Printf("Now declare the dependency: cosm add %s\n", args[0])
+			}
 			return nil
 		},
 	}
 	cmd.Flags().Int("major", -1, "disambiguate which major to develop")
 	cmd.Flags().String("branch", "", "check out a branch")
 	cmd.Flags().String("tag", "", "check out a released tag")
+	cmd.Flags().String("path", "", "adopt a local package checkout (bootstraps an unpublished sibling)")
 	return cmd
 }
 

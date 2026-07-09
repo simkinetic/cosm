@@ -335,7 +335,12 @@ func addCmd() *cobra.Command {
 			if opts.Test {
 				kind = "test dependency"
 			}
-			fmt.Printf("Added %s %s as a %s from registry '%s'\n", name, ver, kind, reg)
+			if reg == "(develop)" {
+				fmt.Printf("Added %s %s as an unpublished %s from the develop workspace\n", name, ver, kind)
+				fmt.Println("  (it resolves only while developed; publish it before releasing this project)")
+			} else {
+				fmt.Printf("Added %s %s as a %s from registry '%s'\n", name, ver, kind, reg)
+			}
 			return nil
 		},
 	}

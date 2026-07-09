@@ -76,7 +76,18 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
 - Run cosm commands from **inside** the specific package directory you're editing.
 - `cosm develop <name>` / `cosm free <name>` manage which packages live in this
   workspace. Avoid `cosm free --purge` unless the user asks — it deletes a checkout
-  and any uncommitted work.
+  and any uncommitted work (for a `--path`-adopted local package it removes only the
+  symlink, not your working directory).
+- **Co-developing a brand-new, unpublished package** (e.g. a sibling you're creating
+  alongside the current one): registries aren't involved yet, so bootstrap it with
+  `--path`. From the consuming project:
+  1. `cosm init <name> --build <ext>` in some directory (creates the sibling).
+  2. `cosm develop <name> --path <dir>` — adopts the local checkout into the workspace.
+  3. `cosm add <name>` — the registry-miss fallback reads the adopted checkout and
+     writes the dependency edge. Now edit both live; no release needed.
+  The project isn't releasable until the sibling is published (`cosm release` +
+  `cosm registry add`), which is a shared-resource step — **ask first** (see the rule
+  above).
 - Version selection is **MVS**: each package declares minimum dependency versions
   and the maximum of the minimums is chosen. There is no lockfile; resolution is
   reproducible from the manifests.

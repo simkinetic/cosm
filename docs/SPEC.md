@@ -785,9 +785,13 @@ git-like; cobra or equivalent. Global flags on every command:
   develop-mode packages.
 
 ### 12.2 Dependencies
-- `cosm add <name> [v<version>] [--registry <r>]` — look up in local registries
-  (prompt on multi-registry match), add to `deps` keyed by `<uuid>@vMAJOR`. No
-  network mutation; if not found locally, hint to `cosm update`.
+- `cosm add <name> [v<version>] [--registry <r>] [--major <n>] [--test]` — look up in
+  local registries (prompt on multi-registry match), add to `deps` (or `testDeps`
+  with `--test`) keyed by `<uuid>@vMAJOR`. No network mutation. If `<name>` is not in
+  any registry but has been adopted into the dev workspace (§12.7,
+  `cosm develop --path`), fall back to that local checkout for identity — this lets a
+  project depend on an **unpublished** sibling. Otherwise hint to `cosm update` /
+  `cosm develop --path`.
 - `cosm rm <name>` — remove (prompt if multiple majors present).
 - `cosm upgrade <name> [v<x>|v<x.y>|v<x.y.z>] [--latest] [--all]` — raise the floor
   in `deps` conservatively (latest compatible) or to `--latest`. Partial constraints
@@ -863,22 +867,30 @@ to use them (per-project opt-in, §7.4). Two pieces of state: the depot
   ] }
 ```
 
-- `cosm develop <name> [--major <N>] [--branch <b> | --tag v<x.y.z>]` — **enroll the
-  current project** (add the unit to `.cosm/develop.json`) and ensure a shared
-  checkout exists at `$COSM_DEPOT/dev/<name>@v<major>`, cloning it if absent. The ref
-  defaults to the repo's **default branch** (so you can commit); use `--branch` for
-  another branch or `--tag` for a released version (detached — branch off it to
-  commit). The chosen ref is recorded in `dev/workspace.json`. Disambiguate a
-  multi-major dependency with `--major` (else prompt). Only enrolled projects resolve
-  to the dev tree (§7.4); enrollment is authoritative, so an enrolled unit is
-  re-cloned on demand if its checkout is later removed.
+- `cosm develop <name> [--major <N>] [--branch <b> | --tag v<x.y.z>] [--path <dir>]` —
+  **enroll the current project** (add the unit to `.cosm/develop.json`) and ensure a
+  shared checkout exists at `$COSM_DEPOT/dev/<name>@v<major>`. Source precedence: an
+  already-adopted workspace unit; then, with `--path`, a local checkout; else a
+  resolved dependency cloned from its registry URL. The ref defaults to the repo's
+  **default branch** (so you can commit); use `--branch`/`--tag` for another ref
+  (recorded in `dev/workspace.json`). Disambiguate a multi-major dependency with
+  `--major`. Only enrolled projects resolve to the dev tree (§7.4); enrollment is
+  authoritative, so an enrolled unit is re-cloned on demand if its checkout is removed.
+- `--path <dir>` **bootstraps a new, unpublished sibling**: it adopts the local
+  package at `<dir>` (identity from its `cosm.json`) by symlinking it into the
+  workspace (entry marked `"local": true`), so it needn't exist in any registry.
+  Combine with `cosm add <name>` — whose registry-miss fallback reads the adopted
+  checkout — to declare the dependency, resolving the chicken-and-egg where `add`
+  needs a registry and `develop` needs a resolved dependency. The project is not
+  releasable until the sibling is published.
 - `cosm develop --list` — show shared checkouts and, for the current project, which
   are enrolled, each with its ref and uncommitted-changes state.
 - `cosm free <name> [--major <N>] [--purge]` — un-enroll the current project (remove from
   `.cosm/develop.json`); this project's resolution reverts to the released version.
   The shared checkout is retained (other projects may still use it); `--purge` deletes
   the shared checkout once no project references it (refusing on uncommitted changes
-  unless `--force`).
+  unless `--force`). For a `--path`-adopted (`"local"`) unit, `--purge` removes only
+  the workspace symlink, never the working directory.
 - Typical flow: `cosm develop A B C` (checkout + enroll the stack) → edit → in a dev
   checkout `cosm release --patch` + `cosm registry add` → `cosm free` →
   `cosm upgrade`.

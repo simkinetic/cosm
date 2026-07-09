@@ -5,6 +5,7 @@
 package develop
 
 import (
+	"os"
 	"path/filepath"
 
 	"cosm/internal/depot"
@@ -72,6 +73,15 @@ func Build(d depot.Depot, projectDir string) (*Overlay, []Missing, error) {
 			continue
 		}
 		path := d.DevUnit(we.Name, we.Major)
+		// A path-adopted unit is a symlink to the working checkout; resolve it so
+		// the source path is the real directory (treehash/build won't descend a
+		// symlinked root). Only touch actual symlinks, so clone-based units keep
+		// their exact dev path.
+		if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			if real, rerr := filepath.EvalSymlinks(path); rerr == nil {
+				path = real
+			}
+		}
 		man, err := manifest.LoadManifestFromDir(path)
 		if err != nil {
 			missing = append(missing, Missing{Key: key, Entry: we, InWS: true})

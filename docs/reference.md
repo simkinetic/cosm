@@ -76,7 +76,11 @@ v0-minor-bump warnings.
 **`cosm add <name> [v<version>]`** — add a dependency. Looks the package up in the
 local registries (prompting if it is found in more than one registry, or spans
 multiple major lines); with no version it takes the latest of each major. Writes to
-`cosm.json` only — no network mutation.
+`cosm.json` only — no network mutation. If `<name>` isn't in any registry but has
+been adopted into the dev workspace (`cosm develop <name> --path <dir>`), it falls
+back to that local checkout for the package's identity — so you can depend on an
+**unpublished** sibling. Such a dependency resolves only while developed; publish it
+before releasing this project.
 - `--registry <name>` — restrict to one registry (skips the prompt when that leaves
   a single candidate). For scripts/CI.
 - `--major <n>` — restrict to one major line (e.g. `--major 0`). For scripts/CI.
@@ -133,16 +137,24 @@ shell (`$SHELL`) with the environment applied.
 
 ### Develop
 
-**`cosm develop <name>`** — check a dependency out into the depot's shared
-workspace (`$COSM_DEPOT/dev/<name>@v<major>`) and enroll this project to use it.
-Enrollment is authoritative; the checkout is created on demand.
+**`cosm develop <name>`** — make a package available for co-development in the
+depot's shared workspace (`$COSM_DEPOT/dev/<name>@v<major>`) and enroll this project
+to use it. Enrollment is authoritative; the checkout is created on demand. Resolves
+in precedence order: an already-adopted workspace unit, then a resolved dependency
+(cloned from its registry URL).
+- `--path <dir>` — **adopt a local checkout** (symlinked into the workspace) instead
+  of cloning. This is how you co-develop a **new, unpublished** package: the sibling
+  needn't be in any registry. Its identity comes from `<dir>/cosm.json`. Pair it with
+  `cosm add <name>` (see below) to declare the dependency, then edit live. Mutually
+  exclusive with `--branch`/`--tag`.
 - `--major <n>` — disambiguate which major to develop.
 - `--branch <b>` / `--tag <v>` — check out a branch or a released tag (default: the
   repo's default branch, so you can commit).
 
 **`cosm free <name>`** — stop developing a dependency for this project.
 - `--major <n>` — disambiguate which major to free.
-- `--purge` — also delete the shared checkout.
+- `--purge` — also delete the shared checkout. For a `--path`-adopted unit this
+  removes only the symlink, never your working directory.
 
 ### Registry
 
