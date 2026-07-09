@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -25,6 +26,11 @@ import (
 
 // Version is set by the main package (ldflags).
 var Version = "dev"
+
+// DevWorkspaceGuide is the agent guide written to $COSM_DEPOT/dev/CLAUDE.md on
+// setup. Injected by the main package (embedded from docs/dev-workspace.md); empty
+// in unit tests, where the write is skipped.
+var DevWorkspaceGuide = ""
 
 var depotFlag string
 
@@ -131,6 +137,16 @@ func setupCmd() *cobra.Command {
 			}
 			fmt.Printf("Depot ready at %s\n", d.Root)
 			fmt.Printf("To pin it for this shell: export COSM_DEPOT=%q\n", d.Root)
+			// Drop the agent guide into the develop workspace, unless one is already
+			// there (never clobber a user's edits).
+			if DevWorkspaceGuide != "" {
+				guide := filepath.Join(d.Dev(), "CLAUDE.md")
+				if _, err := os.Stat(guide); os.IsNotExist(err) {
+					if err := os.WriteFile(guide, []byte(DevWorkspaceGuide), 0o644); err == nil {
+						fmt.Printf("Wrote agent guide to %s\n", guide)
+					}
+				}
+			}
 			return nil
 		},
 	}

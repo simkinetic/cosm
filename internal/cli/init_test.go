@@ -8,6 +8,39 @@ import (
 	"cosm/internal/manifest"
 )
 
+// TestSetupWritesDevGuide verifies `cosm setup` drops the agent guide into the
+// develop workspace, and that a second setup never clobbers a user's edits.
+func TestSetupWritesDevGuide(t *testing.T) {
+	home := setupEnv(t)
+	prev := DevWorkspaceGuide
+	DevWorkspaceGuide = "GUIDE BODY"
+	t.Cleanup(func() { DevWorkspaceGuide = prev })
+
+	if _, err := runCLI(t, home, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	guide := filepath.Join(home, ".cosm", "dev", "CLAUDE.md")
+	got, err := os.ReadFile(guide)
+	if err != nil {
+		t.Fatalf("guide not written: %v", err)
+	}
+	if string(got) != "GUIDE BODY" {
+		t.Fatalf("guide = %q", got)
+	}
+
+	// A user edit must survive a re-run of setup.
+	if err := os.WriteFile(guide, []byte("EDITED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLI(t, home, "setup"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = os.ReadFile(guide)
+	if string(got) != "EDITED" {
+		t.Fatalf("setup clobbered a user edit: %q", got)
+	}
+}
+
 // TestInitScaffoldsProvides verifies `cosm init --build lua` delegates to the
 // extension: it sets `provides` (namespace derived from the version's major) and
 // lays down the matching source stub, so the user need not hand-edit either.

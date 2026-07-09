@@ -40,6 +40,9 @@ Put all three on your `PATH` (or install extensions under
   `find_package`, plus optional binary distribution. *(Also an integration test.)*
 - **[Registry CI](docs/registry-ci.md)** — keeping a registry up to date
   server-side with a scheduled `cosm registry sync`.
+- **[Develop-workspace agent guide](docs/dev-workspace.md)** — how to drive cosm
+  from Claude Code (or another agent) in a co-development workspace. `cosm setup`
+  writes this to `$COSM_DEPOT/dev/CLAUDE.md` for you.
 - **[SPEC](docs/SPEC.md)** — the full design specification.
 
 ## Quick start

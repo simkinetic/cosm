@@ -53,7 +53,9 @@ env → the depot recorded in `${XDG_CONFIG_HOME:-~/.config}/cosm/config.json` �
 
 **`cosm setup`** — create the depot structure and `config.json`. Idempotent. Prints
 the `export COSM_DEPOT=…` line to add to your shell profile (it never edits your
-profile itself).
+profile itself). Also writes the [develop-workspace agent guide](dev-workspace.md)
+to `$COSM_DEPOT/dev/CLAUDE.md` unless one already exists (your edits are never
+overwritten).
 - `--store <dir>` — persist a default artifact store for `cosm publish`.
 
 ### Project
