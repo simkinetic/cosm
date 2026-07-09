@@ -80,13 +80,17 @@ multiple major lines); with no version it takes the latest of each major. Writes
 - `--registry <name>` — restrict to one registry (skips the prompt when that leaves
   a single candidate). For scripts/CI.
 - `--major <n>` — restrict to one major line (e.g. `--major 0`). For scripts/CI.
+- `--test` — add as a **test-only** dependency (written to `testDeps`). Test deps
+  are available when building/testing this package but are **not inherited
+  transitively** — a package that depends on yours never sees them. A compatibility
+  unit may live in `deps` or `testDeps`, not both.
 
-  These flags disambiguate non-interactively: they filter the candidates before the
-  chooser runs, so a single remaining match is added without prompting; if none
+  The disambiguation flags work non-interactively: they filter the candidates before
+  the chooser runs, so a single remaining match is added without prompting; if none
   match, the command errors instead of blocking on a prompt.
 
 **`cosm rm <name>`** — remove a dependency (prompts if the name spans multiple
-majors).
+majors). Finds the dependency in `deps` or `testDeps` automatically.
 
 **`cosm upgrade <name> [v<constraint>]`** — raise a dependency's floor within its
 major. A partial constraint (`v1`, `v1.2`) narrows the choice.
@@ -117,7 +121,9 @@ the assembled environment. The command is resolved against that environment's
 `PATH`, so a just-built binary is found. E.g. `cosm run -- lua src/main.lua`,
 `cosm run -- ./app`.
 
-**`cosm test`** — build, then invoke the project extension's `test` verb.
+**`cosm test`** — build, then invoke the project extension's `test` verb. Resolves
+with the project's `testDeps` included (they and their regular closure are on the
+build/test environment); a plain `cosm build`/`cosm run` excludes them.
 
 **`cosm env`** — print the assembled environment as shell `export` lines; load it
 with `eval "$(cosm env)"`.
@@ -198,6 +204,9 @@ Committed to the package's git repo.
   "deps": {
     "<dep-uuid>@v0": { "name": "terrastd", "version": "v0.6.4" }
   },
+  "testDeps": {
+    "<dep-uuid>@v1": { "name": "terratest", "version": "v1.0.1" }
+  },
   "ext": { "cmake": { "minimumVersion": "3.24" } }
 }
 ```
@@ -212,6 +221,10 @@ Committed to the package's git repo.
   so `greet_v0::` and `greet_v1::` coexist.
 - `deps` — direct requirements only; keyed by the **compatibility unit**
   `<uuid>@v<major>`; the `version` is the minimum (MVS floor).
+- `testDeps` — test-only requirements, same shape as `deps`. Included by
+  `cosm test` (and their regular closure) but **never recorded in the registry
+  specs**, so they are non-transitive: consumers of this package don't inherit
+  them. A unit may appear in `deps` or `testDeps`, not both.
 - `ext` — extension-specific config, opaque to the core.
 
 ### `registry.json` — registry index

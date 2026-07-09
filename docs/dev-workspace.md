@@ -55,6 +55,9 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
     a prompt using `cosm add <name> --registry <reg>` and/or `--major <n>`: these
     filter the candidates, so a single match is added silently and no match errors
     instead of blocking.
+  - For a **test-only** dependency, use `cosm add <name> --test` (recorded in
+    `testDeps`). It's available to `cosm test` but is not inherited by packages that
+    depend on this one.
 - **Get the environment** for other tools: `eval "$(cosm env)"`
 - **Local git**: `git add` / `git commit` on a working branch are fine;
   `git push` / `git tag` require explicit confirmation (see the rule above).

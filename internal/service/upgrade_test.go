@@ -279,6 +279,53 @@ func TestAddMajorFastPath(t *testing.T) {
 	}
 }
 
+func TestAddTestDep(t *testing.T) {
+	d := seedDepot(t)
+	seedPkg(t, d, "R", "app", "u-app", mkSpec("app", "u-app", "v1.0.0"))
+	seedPkg(t, d, "R", "harness", "u-h", mkSpec("harness", "u-h", "v1.0.0"))
+	proj := t.TempDir()
+	writeProject(t, proj, nil)
+	s := New(d, gitx.Exec{})
+
+	if _, _, err := s.Add(proj, "app", "v1.0.0", AddOpts{Major: -1}, nil); err != nil {
+		t.Fatalf("add regular: %v", err)
+	}
+	if _, _, err := s.Add(proj, "harness", "v1.0.0", AddOpts{Major: -1, Test: true}, nil); err != nil {
+		t.Fatalf("add test: %v", err)
+	}
+
+	m, _ := manifest.LoadManifestFromDir(proj)
+	if _, ok := m.Deps[semver.UnitKey("u-app", 1)]; !ok {
+		t.Error("app not in deps")
+	}
+	if _, ok := m.Deps[semver.UnitKey("u-h", 1)]; ok {
+		t.Error("harness must not be in deps")
+	}
+	if _, ok := m.TestDeps[semver.UnitKey("u-h", 1)]; !ok {
+		t.Error("harness not in testDeps")
+	}
+
+	// The same unit cannot be both a dep and a test dep.
+	if _, _, err := s.Add(proj, "harness", "v1.0.0", AddOpts{Major: -1}, nil); err == nil {
+		t.Error("expected error adding a test dep as a regular dep")
+	}
+	if _, _, err := s.Add(proj, "app", "v1.0.0", AddOpts{Major: -1, Test: true}, nil); err == nil {
+		t.Error("expected error adding a regular dep as a test dep")
+	}
+
+	// rm finds it in testDeps without a flag.
+	if err := s.Rm(proj, "harness", nil); err != nil {
+		t.Fatalf("rm test dep: %v", err)
+	}
+	m, _ = manifest.LoadManifestFromDir(proj)
+	if len(m.TestDeps) != 0 {
+		t.Fatalf("test dep not removed: %v", m.TestDeps)
+	}
+	if _, ok := m.Deps[semver.UnitKey("u-app", 1)]; !ok {
+		t.Error("rm of test dep disturbed regular deps")
+	}
+}
+
 func TestAddAndRm(t *testing.T) {
 	d := seedDepot(t)
 	seedPkg(t, d, "R", "p", "u-p", mkSpec("p", "u-p", "v1.0.0"))

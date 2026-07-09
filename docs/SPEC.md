@@ -150,6 +150,10 @@ Field notes:
   declared **minimum** version (MVS floor). `name` locates the package (registry
   shard/path); `uuid` is authoritative for identity and is verified against the
   registry to guard against name collisions across registries.
+- `testDeps` (object): test-only requirements, same shape and keying as `deps`.
+  Included in resolution only for the package being tested, and **non-transitive**
+  (§7.6): never carried into registry specs, so consumers never inherit them. A
+  compatibility unit appears in `deps` or `testDeps`, not both.
 - `ext` (object): extension-specific configuration, **opaque to the core**, passed
   verbatim to the extension. Keyed by extension id.
 - `authors`: structured (replaces the prototype's `[name]email` string encoding).
@@ -456,6 +460,27 @@ the MVS **downgrade** algorithm (Cox): for each module, if its requirement on
 requirement on `<name>` is ≤ `v<x>` (recursively), removing modules with no such
 version. If the target is unsatisfiable, fail with `E_RESOLUTION_CONFLICT` naming
 the blocking requirer.
+
+### 7.6 Test dependencies (non-transitive)
+
+A manifest MAY declare `testDeps` (§4.1): dependencies needed to build and run the
+package's own tests but not to use the package. They differ from `deps` in exactly
+two ways:
+
+1. **Seeded only for the root.** `cosm test` seeds resolution with the root's
+   `deps` **and** `testDeps`; every other command (`build`, `run`, `status`, and
+   resolution of the package *as a dependency*) seeds `deps` only. A test dep's own
+   regular `deps` closure is pulled in normally; its own `testDeps` are never
+   followed. Consequently a test dep can raise the selected version of a shared unit
+   — but only in the test resolution, never in the shipping build.
+
+2. **Never recorded in specs.** Registration/publication copies `deps` into
+   `specs.json` but omits `testDeps`. A dependency's test deps therefore cannot be
+   read by any consumer, making non-transitivity structural rather than a traversal
+   rule. `deps` and `testDeps` MUST be disjoint by compatibility unit.
+
+`cosm add <name> --test` writes to `testDeps`; `cosm rm <name>` removes from
+whichever map holds it.
 
 ---
 

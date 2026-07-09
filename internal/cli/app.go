@@ -262,6 +262,12 @@ func statusCmd() *cobra.Command {
 					fmt.Printf("  * %s %s\n", dep.Name, dep.Version)
 				}
 			}
+			if len(m.TestDeps) > 0 {
+				fmt.Println("Test dependencies:")
+				for _, dep := range sortedDeps(m.TestDeps) {
+					fmt.Printf("  * %s %s\n", dep.Name, dep.Version)
+				}
+			}
 			fmt.Printf("Resolved %d dependencies:\n", len(bl.Dependencies))
 			for _, e := range sortedEntries(bl.Dependencies) {
 				marker := ""
@@ -319,17 +325,23 @@ func addCmd() *cobra.Command {
 			var opts service.AddOpts
 			opts.Registry, _ = cmd.Flags().GetString("registry")
 			opts.Major, _ = cmd.Flags().GetInt("major")
+			opts.Test, _ = cmd.Flags().GetBool("test")
 			cwd, _ := os.Getwd()
 			ver, reg, err := s.Add(cwd, name, version, opts, chooseRegistry)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Added %s %s from registry '%s'\n", name, ver, reg)
+			kind := "dependency"
+			if opts.Test {
+				kind = "test dependency"
+			}
+			fmt.Printf("Added %s %s as a %s from registry '%s'\n", name, ver, kind, reg)
 			return nil
 		},
 	}
 	cmd.Flags().String("registry", "", "select a registry when the name is ambiguous (non-interactive)")
 	cmd.Flags().Int("major", -1, "select a major version line when the name is ambiguous (non-interactive)")
+	cmd.Flags().Bool("test", false, "add as a test-only dependency (non-transitive)")
 	return cmd
 }
 

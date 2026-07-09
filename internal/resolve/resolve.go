@@ -68,6 +68,18 @@ type devInfo struct {
 // dev supplies develop overrides (pass NoDev or nil for none). It returns the
 // build list, any warnings, and an error (e.g. a missing version).
 func Resolve(root *types.Manifest, loader SpecLoader, dev DevOverlay) (types.BuildList, []Warning, error) {
+	return resolve(root, loader, dev, false)
+}
+
+// ResolveWithTests is Resolve but also seeds the root's test-only dependencies
+// (§7.6). Test deps are non-transitive: only the root's are included, and a
+// dependency's own testDeps are never followed (the resolver only traverses
+// regular `deps` edges). A test dep's regular dependency closure IS pulled in.
+func ResolveWithTests(root *types.Manifest, loader SpecLoader, dev DevOverlay) (types.BuildList, []Warning, error) {
+	return resolve(root, loader, dev, true)
+}
+
+func resolve(root *types.Manifest, loader SpecLoader, dev DevOverlay, includeTests bool) (types.BuildList, []Warning, error) {
 	if dev == nil {
 		dev = NoDev
 	}
@@ -84,6 +96,13 @@ func Resolve(root *types.Manifest, loader SpecLoader, dev DevOverlay) (types.Bui
 	for key, d := range root.Deps {
 		if err := push(key, d); err != nil {
 			return types.BuildList{}, nil, err
+		}
+	}
+	if includeTests {
+		for key, d := range root.TestDeps {
+			if err := push(key, d); err != nil {
+				return types.BuildList{}, nil, err
+			}
 		}
 	}
 

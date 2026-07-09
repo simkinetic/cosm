@@ -68,6 +68,63 @@ func assertSelected(t *testing.T, bl types.BuildList, want map[string]string) {
 	}
 }
 
+// TestMVS_TestDeps: the root's test deps (and their regular closure) appear only
+// under ResolveWithTests; a plain Resolve omits them.
+func TestMVS_TestDeps(t *testing.T) {
+	L := mapLoader{
+		"app@v1.0.0":       spec("app", "u-app", "v1.0.0"),
+		"harness@v1.0.0":   spec("harness", "u-harness", "v1.0.0", [3]string{"assertlib", "u-al", "v1.0.0"}),
+		"assertlib@v1.0.0": spec("assertlib", "u-al", "v1.0.0"),
+	}
+	root := &types.Manifest{Name: "root", UUID: "u-root", Version: "v1.0.0",
+		Deps: map[string]types.Dependency{
+			semver.UnitKey("u-app", 1): {Name: "app", Version: "v1.0.0"},
+		},
+		TestDeps: map[string]types.Dependency{
+			semver.UnitKey("u-harness", 1): {Name: "harness", Version: "v1.0.0"},
+		},
+	}
+
+	bl, _, err := Resolve(root, L, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSelected(t, bl, map[string]string{"app": "v1.0.0"})
+
+	blt, _, err := ResolveWithTests(root, L, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// harness pulls its regular dependency assertlib transitively; both are present.
+	assertSelected(t, blt, map[string]string{"app": "v1.0.0", "harness": "v1.0.0", "assertlib": "v1.0.0"})
+}
+
+// TestMVS_TestDepsRaiseFloorOnlyUnderTests: a test dep can raise a shared unit's
+// selected version, but only in the test resolution — the shipping build is
+// unaffected.
+func TestMVS_TestDepsRaiseFloorOnlyUnderTests(t *testing.T) {
+	L := mapLoader{
+		"lib@v1.0.0":     spec("lib", "u-lib", "v1.0.0", [3]string{"shared", "u-sh", "v1.0.0"}),
+		"harness@v1.0.0": spec("harness", "u-harness", "v1.0.0", [3]string{"shared", "u-sh", "v1.5.0"}),
+		"shared@v1.0.0":  spec("shared", "u-sh", "v1.0.0"),
+		"shared@v1.5.0":  spec("shared", "u-sh", "v1.5.0"),
+	}
+	root := &types.Manifest{Name: "root", UUID: "u-root", Version: "v1.0.0",
+		Deps: map[string]types.Dependency{
+			semver.UnitKey("u-lib", 1): {Name: "lib", Version: "v1.0.0"},
+		},
+		TestDeps: map[string]types.Dependency{
+			semver.UnitKey("u-harness", 1): {Name: "harness", Version: "v1.0.0"},
+		},
+	}
+
+	bl, _, _ := Resolve(root, L, nil)
+	assertSelected(t, bl, map[string]string{"lib": "v1.0.0", "shared": "v1.0.0"})
+
+	blt, _, _ := ResolveWithTests(root, L, nil)
+	assertSelected(t, blt, map[string]string{"lib": "v1.0.0", "harness": "v1.0.0", "shared": "v1.5.0"})
+}
+
 // TestMVS_AG reproduces the canonical A–G graph from the prototype's test.
 // Expected build list for A (deps B v1.2.0, C v1.2.0): B1.2.0 C1.2.0 D1.4.0 E1.2.0.
 func TestMVS_AG(t *testing.T) {

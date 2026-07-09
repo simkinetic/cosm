@@ -157,7 +157,8 @@ func testCmd() *cobra.Command {
 				return err
 			}
 			cwd, _ := os.Getwd()
-			root, bl, _, err := s.Resolve(cwd)
+			// Tests resolve with the project's test-only dependencies (§7.6).
+			root, bl, _, err := s.ResolveWithTests(cwd)
 			if err != nil {
 				return err
 			}

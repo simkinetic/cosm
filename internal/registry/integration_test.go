@@ -109,6 +109,63 @@ func makePkgMasterHead(t *testing.T, name, uuid, version string) string {
 	return "file://" + bare
 }
 
+// TestIntegration_TestDepsNotRegistered proves test deps are non-transitive by
+// construction: registration copies regular `deps` into specs.json but never
+// `testDeps`, so a consumer resolving the package can't even see them.
+func TestIntegration_TestDepsNotRegistered(t *testing.T) {
+	isolateGit(t)
+	d := newDepot(t)
+	svc := NewService(d, gitx.Exec{})
+	regRemote := initBare(t, "reg.git")
+	if err := svc.InitRegistry("R", "file://"+regRemote, types.KindSource); err != nil {
+		t.Fatalf("InitRegistry: %v", err)
+	}
+
+	g := gitx.Exec{}
+	work := filepath.Join(t.TempDir(), "lib")
+	if err := os.MkdirAll(filepath.Join(work, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &types.Manifest{Name: "lib", UUID: "u-lib", Version: "v1.0.0", Build: "lua",
+		Provides: []string{semver.UnitKey("lib", 1)},
+		Deps: map[string]types.Dependency{
+			semver.UnitKey("u-real", 1): {Name: "real", Version: "v1.0.0"},
+		},
+		TestDeps: map[string]types.Dependency{
+			semver.UnitKey("u-harness", 1): {Name: "harness", Version: "v1.0.0"},
+		},
+	}
+	if err := manifest.SaveManifest(filepath.Join(work, "cosm.json"), m); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "src", "lib.lua"), []byte("return {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, g, work, "init")
+	mustRun(t, g, work, "add", ".")
+	mustRun(t, g, work, "commit", "-m", "init")
+	mustRun(t, g, work, "branch", "-M", "main")
+	mustRun(t, g, work, "tag", "v1.0.0")
+	bare := initBare(t, "lib.git")
+	mustRun(t, g, work, "remote", "add", "origin", "file://"+bare)
+	mustRun(t, g, work, "push", "origin", "main")
+	mustRun(t, g, work, "push", "origin", "--tags")
+
+	if _, _, err := svc.AddPackage("R", "file://"+bare); err != nil {
+		t.Fatalf("AddPackage: %v", err)
+	}
+	sp, err := NewLoader(d).Load("lib", "u-lib", "v1.0.0")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := sp.Deps[semver.UnitKey("u-real", 1)]; !ok {
+		t.Error("regular dep missing from specs")
+	}
+	if _, ok := sp.Deps[semver.UnitKey("u-harness", 1)]; ok {
+		t.Error("test dep leaked into specs.json (would be transitive)")
+	}
+}
+
 func mustRun(t *testing.T, g gitx.Exec, dir string, args ...string) {
 	t.Helper()
 	if _, err := g.Run(dir, args...); err != nil {

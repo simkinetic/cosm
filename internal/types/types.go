@@ -30,7 +30,8 @@ type Manifest struct {
 	Build         string                     `json:"build,omitempty"`    // extension id
 	Provides      []string                   `json:"provides,omitempty"` // module namespaces
 	Deps          map[string]Dependency      `json:"deps,omitempty"`
-	Ext           map[string]json.RawMessage `json:"ext,omitempty"` // opaque to core
+	TestDeps      map[string]Dependency      `json:"testDeps,omitempty"` // test-only, non-transitive (§7.6)
+	Ext           map[string]json.RawMessage `json:"ext,omitempty"`      // opaque to core
 }
 
 // RegistryKind marks how a registry's packages are materialized (§4.2, §8.5).

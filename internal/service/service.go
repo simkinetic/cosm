@@ -31,6 +31,16 @@ func New(d depot.Depot, g gitx.Git) *Service {
 // Resolve loads a project's cosm.json and computes its build list, applying any
 // develop overrides enrolled by the project (§7).
 func (s *Service) Resolve(projectDir string) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
+	return s.resolve(projectDir, false)
+}
+
+// ResolveWithTests is Resolve but also includes the project's test-only
+// dependencies (§7.6) — used by `cosm test`.
+func (s *Service) ResolveWithTests(projectDir string) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
+	return s.resolve(projectDir, true)
+}
+
+func (s *Service) resolve(projectDir string, includeTests bool) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
 	m, err := manifest.LoadManifestFromDir(projectDir)
 	if err != nil {
 		return nil, types.BuildList{}, nil, err
@@ -39,7 +49,13 @@ func (s *Service) Resolve(projectDir string) (*types.Manifest, types.BuildList, 
 	if err != nil {
 		return nil, types.BuildList{}, nil, err
 	}
-	bl, warns, err := resolve.Resolve(m, s.Loader, ov)
+	var bl types.BuildList
+	var warns []resolve.Warning
+	if includeTests {
+		bl, warns, err = resolve.ResolveWithTests(m, s.Loader, ov)
+	} else {
+		bl, warns, err = resolve.Resolve(m, s.Loader, ov)
+	}
 	return m, bl, warns, err
 }
 
@@ -47,10 +63,11 @@ func (s *Service) Resolve(projectDir string) (*types.Manifest, types.BuildList, 
 type RegistryChooser func(name, version string, locs []registry.Location) (registry.Location, error)
 
 // AddOpts narrows candidate selection non-interactively (a fast-path around the
-// chooser prompt, for scripts/CI).
+// chooser prompt, for scripts/CI) and selects the dependency kind.
 type AddOpts struct {
 	Registry string // "" = any registry
 	Major    int    // -1 = any major
+	Test     bool   // add to testDeps (test-only, non-transitive) instead of deps
 }
 
 // Add adds a dependency to the project's cosm.json (§12.2). When more than one
@@ -92,13 +109,21 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 		return "", "", err
 	}
 	key := semver.UnitKey(loc.Specs.UUID, major)
+	// A compatibility unit may live in `deps` or `testDeps`, never both.
 	if _, exists := m.Deps[key]; exists {
 		return "", "", fmt.Errorf("%w: %s@v%d already a dependency", errs.ErrUsage, name, major)
 	}
-	if m.Deps == nil {
-		m.Deps = map[string]types.Dependency{}
+	if _, exists := m.TestDeps[key]; exists {
+		return "", "", fmt.Errorf("%w: %s@v%d already a test dependency", errs.ErrUsage, name, major)
 	}
-	m.Deps[key] = types.Dependency{Name: name, Version: loc.Specs.Version}
+	target := &m.Deps
+	if opts.Test {
+		target = &m.TestDeps
+	}
+	if *target == nil {
+		*target = map[string]types.Dependency{}
+	}
+	(*target)[key] = types.Dependency{Name: name, Version: loc.Specs.Version}
 	if err := manifest.SaveManifest(filepath.Join(projectDir, "cosm.json"), m); err != nil {
 		return "", "", err
 	}
@@ -116,10 +141,18 @@ func (s *Service) Rm(projectDir, name string, choose DepChooser) error {
 	}
 	var keys []string
 	var deps []types.Dependency
+	isTest := map[string]bool{}
 	for k, dp := range m.Deps {
 		if dp.Name == name {
 			keys = append(keys, k)
 			deps = append(deps, dp)
+		}
+	}
+	for k, dp := range m.TestDeps {
+		if dp.Name == name {
+			keys = append(keys, k)
+			deps = append(deps, dp)
+			isTest[k] = true
 		}
 	}
 	if len(keys) == 0 {
@@ -131,7 +164,11 @@ func (s *Service) Rm(projectDir, name string, choose DepChooser) error {
 			return err
 		}
 	}
-	delete(m.Deps, key)
+	if isTest[key] {
+		delete(m.TestDeps, key)
+	} else {
+		delete(m.Deps, key)
+	}
 	return manifest.SaveManifest(filepath.Join(projectDir, "cosm.json"), m)
 }
 
