@@ -1,6 +1,7 @@
 package materialize
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,6 +153,106 @@ func TestActivateAndAssembleEnv(t *testing.T) {
 	want := "/a" + sep + "/b" + sep + "/existing"
 	if got["FAKE_PATH"] != want {
 		t.Errorf("FAKE_PATH = %q want %q", got["FAKE_PATH"], want)
+	}
+}
+
+// TestClosureKeys: the closure of direct deps spans the whole transitive graph,
+// deepest-first, de-duplicated across diamonds.
+func TestClosureKeys(t *testing.T) {
+	// B -> {C, D}; C -> E; D -> E (diamond on E). Direct dep of the root: B.
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{
+		"B": {Name: "B", DepKeys: []string{"C", "D"}},
+		"C": {Name: "C", DepKeys: []string{"E"}},
+		"D": {Name: "D", DepKeys: []string{"E"}},
+		"E": {Name: "E"},
+	}}
+	got := closureKeys([]string{"B"}, bl)
+
+	pos := map[string]int{}
+	for i, k := range got {
+		if _, dup := pos[k]; dup {
+			t.Fatalf("duplicate %s in %v", k, got)
+		}
+		pos[k] = i
+	}
+	for _, k := range []string{"B", "C", "D", "E"} {
+		if _, ok := pos[k]; !ok {
+			t.Fatalf("closure missing %s: %v", k, got)
+		}
+	}
+	if !(pos["E"] < pos["C"] && pos["E"] < pos["D"] && pos["C"] < pos["B"] && pos["D"] < pos["B"]) {
+		t.Fatalf("not deepest-first: %v", got)
+	}
+}
+
+// fakeExtensionRecording records each build request's stdin (one compact JSON per
+// line) so a test can inspect exactly which deps a package's build received.
+func fakeExtensionRecording(t *testing.T, d depot.Depot, reqfile string) {
+	t.Helper()
+	dir := filepath.Join(d.Extensions(), "fake")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+case "$1" in
+  info) echo '{"extension":"fake","version":"0.0.1","protocol":1,"toolchainId":"fake-tc","capabilities":["info","build","activate"]}' ;;
+  build) cat >> "` + reqfile + `"; printf '\n' >> "` + reqfile + `"; echo '{"status":"ok","descriptor":{"marker":"x"}}' ;;
+  activate) cat >/dev/null; echo '{"env":{}}' ;;
+  *) echo unknown >&2; exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "cosm-ext-fake"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBuildForwardsTransitiveClosure: building a package must hand the extension
+// its FULL transitive dep closure (so CMAKE_PREFIX_PATH etc. spans it), not just
+// direct deps. Regression for the transitive-prefix bug.
+func TestBuildForwardsTransitiveClosure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".cosm")
+	d := depot.New(root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := d.Setup(); err != nil {
+		t.Fatal(err)
+	}
+	reqfile := filepath.Join(t.TempDir(), "requests.jsonl")
+	fakeExtensionRecording(t, d, reqfile)
+	m := &Materializer{D: d, Git: gitx.Exec{}, Run: ext.NewRunner(d),
+		Opt: Options{Platform: types.Platform{OS: "linux", Arch: "amd64"}, BuildType: "Release", Jobs: 1}}
+
+	// a -> b -> c, so c is transitive to a.
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{
+		"u-a@v1": {Name: "a", UUID: "u-a", Major: 1, Version: "v1.0.0", Build: "fake", Develop: true, SourcePath: devDir(t, "a"), DepKeys: []string{"u-b@v1"}},
+		"u-b@v1": {Name: "b", UUID: "u-b", Major: 1, Version: "v1.0.0", Build: "fake", Develop: true, SourcePath: devDir(t, "b"), DepKeys: []string{"u-c@v1"}},
+		"u-c@v1": {Name: "c", UUID: "u-c", Major: 1, Version: "v1.0.0", Build: "fake", Develop: true, SourcePath: devDir(t, "c")},
+	}}
+	if _, err := m.BuildAll(bl); err != nil {
+		t.Fatalf("BuildAll: %v", err)
+	}
+
+	data, _ := os.ReadFile(reqfile)
+	var aDeps map[string]bool
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var r ext.BuildRequest
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			t.Fatalf("bad request json %q: %v", line, err)
+		}
+		if r.Package.Name == "a" {
+			aDeps = map[string]bool{}
+			for _, dep := range r.Deps {
+				aDeps[dep.Name] = true
+			}
+		}
+	}
+	if aDeps == nil {
+		t.Fatal("no build request recorded for 'a'")
+	}
+	if !aDeps["b"] || !aDeps["c"] {
+		t.Fatalf("a's build deps = %v; want both b (direct) and c (transitive)", aDeps)
 	}
 }
 

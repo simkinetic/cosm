@@ -509,7 +509,11 @@ order:
 2. If `builds/<uuid>/<commit>/<buildKey>/` exists, reuse it (cache hit).
 3. Else invoke the owning extension's `build` verb (§9.3) with the source dir, a
    fresh install prefix under that build dir, and the **consumption descriptors of
-   its already-built deps**. On success, store the returned descriptor and metadata.
+   its full transitive dependency closure** (not just direct deps — a dependency's
+   installed package config may `find_dependency()` a transitive one, so the whole
+   closure's prefixes must be visible). The build **key** still keys off direct
+   deps, whose own keys already encode the closure's content. On success, store the
+   returned descriptor and metadata.
 4. The extension writes only inside the provided prefix; the core owns cache paths.
 
 A node resolved from a **binary** registry is not built here: at the same point in the
@@ -665,8 +669,9 @@ The core merges `prependPaths` in dependency order and applies `env` verbatim.
 
 ### 9.5 Reference extension — C++/CMake (`cosm-ext-cmake`)
 - `build`:
-  1. Generate `cosm-deps.cmake` setting `CMAKE_PREFIX_PATH` from each dep
-     descriptor's install prefix.
+  1. Generate `cosm-deps.cmake` setting `CMAKE_PREFIX_PATH` from every dep
+     descriptor's install prefix in the request — the **full transitive closure**
+     the core forwards (§8.2), so `find_dependency()` of a transitive dep resolves.
   2. `cmake -S <source> -B <buildtmp> -DCMAKE_INSTALL_PREFIX=<prefix>`
      `-DCMAKE_PREFIX_PATH=<deps> -DCMAKE_BUILD_TYPE=<config.buildType>`
      `-C cosm-deps.cmake` (+ options from `ext.cmake`).

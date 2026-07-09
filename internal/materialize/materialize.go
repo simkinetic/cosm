@@ -182,16 +182,27 @@ func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built,
 		seg = "wt-" + shortHash(tree)
 	}
 
-	var deps []ext.DepCtx
+	// The build key keys off the DIRECT deps: their own build keys already encode
+	// their transitive closure's content, so any change deep in the graph changes a
+	// direct dep's key and thus this one.
 	var depBKs []string
 	for _, dk := range e.DepKeys {
+		if b, ok := built[dk]; ok {
+			depBKs = append(depBKs, b.BuildKey)
+		}
+	}
+	// The extension, however, receives the FULL transitive closure so a dependency's
+	// installed package config can resolve find_dependency() of a transitive
+	// dependency — e.g. CMAKE_PREFIX_PATH must span the whole closure, not just
+	// direct deps (parity with `activate`).
+	var deps []ext.DepCtx
+	for _, dk := range closureKeys(e.DepKeys, bl) {
 		b, ok := built[dk]
 		if !ok {
 			continue
 		}
 		de := bl.Dependencies[dk]
 		deps = append(deps, ext.DepCtx{Name: de.Name, UUID: de.UUID, Version: de.Version, Prefix: b.Prefix, Descriptor: b.Descriptor})
-		depBKs = append(depBKs, b.BuildKey)
 	}
 
 	bk := buildkey.Compute(buildkey.Input{
@@ -303,6 +314,29 @@ func (m *Materializer) Activate(root *types.Manifest, projectDir string, bl type
 		Platform: m.Opt.Platform,
 		Deps:     deps,
 	})
+}
+
+// closureKeys returns the transitive dependency closure of the given direct dep
+// keys within bl, deepest-first (a dependency precedes anything that requires it)
+// and de-duplicated across diamond paths.
+func closureKeys(direct []string, bl types.BuildList) []string {
+	seen := map[string]bool{}
+	var order []string
+	var visit func([]string)
+	visit = func(keys []string) {
+		for _, k := range keys {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			if dep, ok := bl.Dependencies[k]; ok {
+				visit(dep.DepKeys)
+			}
+			order = append(order, k)
+		}
+	}
+	visit(direct)
+	return order
 }
 
 func topoOrder(bl types.BuildList) ([]string, error) {
