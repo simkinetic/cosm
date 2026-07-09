@@ -84,9 +84,14 @@ type ScaffoldRequest struct {
 	Dir     string `json:"dir"`
 }
 
-// ScaffoldResponse is the `scaffold` verb output.
+// ScaffoldResponse is the `scaffold` verb output. The extension creates the
+// language-specific source layout and reports it in Files; it also declares the
+// module namespaces (Provides) and any default ext config for the manifest, which
+// the core writes into cosm.json (the extension does not write cosm.json itself).
 type ScaffoldResponse struct {
-	Files []string `json:"files,omitempty"`
+	Files    []string                   `json:"files,omitempty"`
+	Provides []string                   `json:"provides,omitempty"`
+	Ext      map[string]json.RawMessage `json:"ext,omitempty"`
 }
 
 // TestRequest is the `test` verb input.

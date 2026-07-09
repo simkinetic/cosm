@@ -3,6 +3,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -13,6 +14,7 @@ import (
 
 	"cosm/internal/depot"
 	"cosm/internal/errs"
+	"cosm/internal/ext"
 	"cosm/internal/gitx"
 	"cosm/internal/manifest"
 	"cosm/internal/registry"
@@ -163,15 +165,58 @@ func initCmd() *cobra.Command {
 				Name: name, UUID: uuid.NewString(), Version: version,
 				Authors: gitAuthors(gitx.Exec{}), Build: build,
 			}
+			cwd, _ := os.Getwd()
+			// When a build extension is set, let it lay down the language-specific
+			// source tree and declare the module namespace(s) for the manifest, so
+			// the user doesn't hand-write `provides` or create `src/<ns>/`.
+			var scaffolded []string
+			if build != "" {
+				files, err := scaffoldPackage(build, m, cwd)
+				if err != nil {
+					return err
+				}
+				scaffolded = files
+			}
 			if err := manifest.SaveManifest("cosm.json", m); err != nil {
 				return err
 			}
 			fmt.Printf("Initialized package '%s' %s\n", name, version)
+			for _, f := range scaffolded {
+				fmt.Printf("  created %s\n", f)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().String("build", "", "build-system extension id (e.g. lua, cmake)")
 	return cmd
+}
+
+// scaffoldPackage asks the build extension to create the source layout and
+// declare the package's module namespace(s), folding the result into m. A missing
+// extension is not fatal: the manifest is still written (minus the scaffold).
+func scaffoldPackage(build string, m *types.Manifest, dir string) ([]string, error) {
+	d, err := openDepot()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := ext.NewRunner(d).Scaffold(build, ext.ScaffoldRequest{
+		Name: m.Name, UUID: m.UUID, Version: m.Version, Dir: dir,
+	})
+	if err != nil {
+		if errors.Is(err, errs.ErrExtNotFound) {
+			fmt.Fprintf(os.Stderr, "note: extension 'cosm-ext-%s' not found; wrote manifest only "+
+				"(install it to scaffold sources and 'provides')\n", build)
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(resp.Provides) > 0 {
+		m.Provides = resp.Provides
+	}
+	if len(resp.Ext) > 0 {
+		m.Ext = resp.Ext
+	}
+	return resp.Files, nil
 }
 
 // ---- status ----

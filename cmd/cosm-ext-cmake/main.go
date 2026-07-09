@@ -13,6 +13,7 @@ import (
 
 	"cosm/internal/ext"
 	"cosm/internal/ext/extlib"
+	"cosm/internal/semver"
 )
 
 const version = "0.1.0"
@@ -151,12 +152,37 @@ func doActivate() {
 func doScaffold() {
 	var req ext.ScaffoldRequest
 	must(extlib.ReadRequest(&req))
+	mj, err := semver.Major(req.Version)
+	if err != nil {
+		extlib.Fatal("scaffold: %v", err)
+	}
+	// cosm's namespace is `<name>@v<major>`; its C++ binding is `<name>_v<major>`
+	// (`@` is not a legal C++/CMake identifier). The C++ namespace is versioned so
+	// two majors of the library can be linked into the same program at once.
+	ns := fmt.Sprintf("%s@v%d", req.Name, mj)
+	id := fmt.Sprintf("%s_v%d", req.Name, mj)
+
+	cmake := fmt.Sprintf(`cmake_minimum_required(VERSION 3.24)
+project(%[1]s LANGUAGES CXX)
+
+add_library(%[1]s src/%[2]s.cpp)
+target_compile_features(%[1]s PUBLIC cxx_std_17)
+target_include_directories(%[1]s PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+
+install(TARGETS %[1]s EXPORT %[1]sTargets ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
+install(DIRECTORY include/ DESTINATION include)
+install(EXPORT %[1]sTargets FILE %[1]sConfig.cmake NAMESPACE %[1]s:: DESTINATION lib/cmake/%[1]s)
+`, id, req.Name)
+
+	header := fmt.Sprintf("#pragma once\n#include <string>\n\nnamespace %[1]s {\nstd::string hello(const std::string& name);\n}\n", id)
+	source := fmt.Sprintf("#include \"%[1]s/%[2]s.hpp\"\n\nnamespace %[3]s {\nstd::string hello(const std::string& name) { return \"Hello, \" + name + \"!\"; }\n}\n", id, req.Name, id)
+
 	files := map[string]string{
-		"cosm.json": fmt.Sprintf("{\n  \"schemaVersion\": 1,\n  \"name\": %q,\n  \"uuid\": %q,\n  \"version\": %q,\n  \"build\": \"cmake\",\n  \"provides\": [%q],\n  \"ext\": { \"cmake\": { \"minimumVersion\": \"3.24\" } }\n}\n",
-			req.Name, req.UUID, req.Version, req.Name),
-		"CMakeLists.txt": fmt.Sprintf("cmake_minimum_required(VERSION 3.24)\nproject(%s LANGUAGES CXX)\n\nadd_library(%s src/%s.cpp)\ntarget_include_directories(%s PUBLIC $<INSTALL_INTERFACE:include>)\n\ninstall(TARGETS %s EXPORT %sTargets ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)\ninstall(EXPORT %sTargets DESTINATION lib/cmake/%s FILE %sConfig.cmake)\n",
-			req.Name, req.Name, req.Name, req.Name, req.Name, req.Name, req.Name, req.Name, req.Name),
-		filepath.Join("src", req.Name+".cpp"): "// " + req.Name + "\n",
+		"CMakeLists.txt": cmake,
+		filepath.Join("include", id, req.Name+".hpp"): header,
+		filepath.Join("src", req.Name+".cpp"):         source,
 	}
 	var created []string
 	for rel, content := range files {
@@ -169,7 +195,11 @@ func doScaffold() {
 		}
 		created = append(created, rel)
 	}
-	must(extlib.WriteResponse(ext.ScaffoldResponse{Files: created}))
+	must(extlib.WriteResponse(ext.ScaffoldResponse{
+		Files:    created,
+		Provides: []string{ns},
+		Ext:      map[string]json.RawMessage{"cmake": json.RawMessage(`{"minimumVersion":"3.24"}`)},
+	}))
 }
 
 func doTest() {

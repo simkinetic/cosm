@@ -12,6 +12,7 @@ import (
 
 	"cosm/internal/ext"
 	"cosm/internal/ext/extlib"
+	"cosm/internal/semver"
 )
 
 const version = "0.1.0"
@@ -94,10 +95,14 @@ func doActivate() {
 func doScaffold() {
 	var req ext.ScaffoldRequest
 	must(extlib.ReadRequest(&req))
-	ns := req.Name + "@v0"
+	// The namespace carries the major so v0 and a future v1 can coexist; it also
+	// names the source directory the consumer requires ("<ns>.<module>").
+	mj, err := semver.Major(req.Version)
+	if err != nil {
+		extlib.Fatal("scaffold: %v", err)
+	}
+	ns := fmt.Sprintf("%s@v%d", req.Name, mj)
 	files := map[string]string{
-		"cosm.json": fmt.Sprintf("{\n  \"schemaVersion\": 1,\n  \"name\": %q,\n  \"uuid\": %q,\n  \"version\": %q,\n  \"build\": \"lua\",\n  \"provides\": [%q]\n}\n",
-			req.Name, req.UUID, req.Version, ns),
 		filepath.Join("src", ns, req.Name+".lua"): "local M = {}\n\nreturn M\n",
 		filepath.Join("test", "test.lua"):         "-- tests for " + req.Name + "\n",
 	}
@@ -112,7 +117,7 @@ func doScaffold() {
 		}
 		created = append(created, rel)
 	}
-	must(extlib.WriteResponse(ext.ScaffoldResponse{Files: created}))
+	must(extlib.WriteResponse(ext.ScaffoldResponse{Files: created, Provides: []string{ns}}))
 }
 
 func doTest() {

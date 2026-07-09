@@ -131,6 +131,20 @@ Field notes:
 - `provides` (array of strings): module namespace(s) this package exposes, each
   `<namespace>@v<major>`. Semantics are **extension-defined**: import roots for
   path-based languages (Lua), exported package/target names for C++/CMake.
+
+  **Namespace binding rule.** The major is part of the namespace so two majors of a
+  package can be consumed simultaneously — the basis for incremental migration
+  (§12.2: `cosm add <name> v<N>` → migrate imports → `cosm rm` old major). Each extension
+  binds the canonical `<namespace>@v<major>` token to its language's surface. Where
+  the language admits `@` in an identifier/path the token is used verbatim (Lua:
+  `require("strutil@v0.strutil")` from `src/strutil@v0/`). Where it does not
+  (C++/CMake — `@` is illegal in identifiers and CMake target names), the extension
+  MUST re-spell it deterministically to a legal form, versioning the surface so the
+  majors do not collide: the reference cmake extension maps `greet@v0` →
+  `greet_v0`, used as the include prefix, the C++ `namespace`, and the CMake
+  package/target (`greet_v0::greet_v0`), so `greet_v0::` and `greet_v1::` link into
+  one program. The core never interprets the token; the mapping is the extension's
+  contract with its consumers.
 - `deps` (object): **direct requirements only**. Key = `<dep-uuid>@v<major>`
   (compatibility unit, §6.3). Value = `{ name, version }` where `version` is the
   declared **minimum** version (MVS floor). `name` locates the package (registry

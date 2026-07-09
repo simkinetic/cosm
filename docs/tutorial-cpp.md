@@ -27,14 +27,17 @@ index and pushes the first commit itself.
 **This tutorial needs no accounts or servers.** We simulate every remote with a
 local *bare* repository and a `file://` URL, so you can copy-paste and run it all on
 one machine. A "bare" repo is just a git repo with no working files — the form a
-server stores. We create each one explicitly with `git init --bare` right before it
-is used.
+server stores. We create each one explicitly with `git init --bare -b main` right
+before it is used. The `-b main` makes the bare repo's default branch `main`, so it
+matches the branch we push — without it, a repo created while your git still
+defaults to `master` would clone with an empty working tree and later `cosm registry
+add` couldn't find its `cosm.json`.
 
 **For real use**, swap the local bare repos for repositories on your git host:
 
 | in this tutorial (local) | in real use (e.g. GitHub) |
 |---|---|
-| `git init --bare "$HOME/remotes/foo.git"` | Create a **new empty repo** in the web UI — with **no** README, license, or `.gitignore` (it must be empty). The host stores it bare for you; you never run `git init --bare`. |
+| `git init --bare -b main "$HOME/remotes/foo.git"` | Create a **new empty repo** in the web UI — with **no** README, license, or `.gitignore` (it must be empty). The host stores it bare for you; you never run `git init --bare`. |
 | `file://$HOME/remotes/foo.git` | that repo's clone URL, e.g. `git@github.com:you/foo.git` (SSH is the default) |
 
 Everything else stays identical. First, make a folder to hold the tutorial's local
@@ -50,7 +53,7 @@ mkdir -p "$HOME/remotes"
 cosm setup
 
 # Create the registry's (empty) remote, then initialize the registry into it.
-git init --bare "$HOME/remotes/cosmcpp.git"
+git init --bare -b main "$HOME/remotes/cosmcpp.git"
 cosm registry init cosmcpp "file://$HOME/remotes/cosmcpp.git"
 ```
 
@@ -64,39 +67,48 @@ mkdir greet && cd greet
 cosm init greet v0.1.0 --build cmake
 ```
 
-Add a header, a source file, and a `CMakeLists.txt` that installs an **exported**
-target so consumers can `find_package(greet CONFIG)`:
+Because you passed `--build cmake`, `cosm init` asks the CMake extension to
+scaffold the package: it sets `provides: ["greet@v0"]` in `cosm.json` (plus a
+default `ext.cmake.minimumVersion`) and writes a compiling starter — a
+`CMakeLists.txt`, `include/greet_v0/greet.hpp`, and `src/greet.cpp`.
+
+**The `greet_v0` spelling.** cosm's compatibility unit is `greet@v0`. Since `@` is
+not a legal C++/CMake identifier, its C++ binding is `greet_v0` — used for the
+include directory, the C++ namespace, and the CMake package/target. The namespace
+is versioned on purpose: `greet@v0` and a future `greet@v1` become
+`greet_v0::hello` and `greet_v1::hello`, so a program can link **both majors at
+once** and migrate call sites one at a time instead of all in a single flag day.
+
+The scaffold already compiles; a real `greet` looks like:
 
 ```sh
-mkdir -p include/greet src
-
-cat > include/greet/greet.hpp <<'HPP'
+cat > include/greet_v0/greet.hpp <<'HPP'
 #pragma once
 #include <string>
-namespace greet { std::string hello(const std::string& name); }
+namespace greet_v0 { std::string hello(const std::string& name); }
 HPP
 
 cat > src/greet.cpp <<'CPP'
-#include "greet/greet.hpp"
-namespace greet { std::string hello(const std::string& name) { return "Hello, " + name + "!"; } }
+#include "greet_v0/greet.hpp"
+namespace greet_v0 { std::string hello(const std::string& name) { return "Hello, " + name + "!"; } }
 CPP
 
 cat > CMakeLists.txt <<'CMAKE'
 cmake_minimum_required(VERSION 3.24)
-project(greet LANGUAGES CXX)
+project(greet_v0 LANGUAGES CXX)
 
-add_library(greet src/greet.cpp)
-target_compile_features(greet PUBLIC cxx_std_17)
-target_include_directories(greet PUBLIC
+add_library(greet_v0 src/greet.cpp)
+target_compile_features(greet_v0 PUBLIC cxx_std_17)
+target_include_directories(greet_v0 PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 
-install(TARGETS greet EXPORT greetTargets ARCHIVE DESTINATION lib)
+install(TARGETS greet_v0 EXPORT greet_v0Targets ARCHIVE DESTINATION lib)
 install(DIRECTORY include/ DESTINATION include)
-install(EXPORT greetTargets
-  FILE greetConfig.cmake
-  NAMESPACE greet::
-  DESTINATION lib/cmake/greet)
+install(EXPORT greet_v0Targets
+  FILE greet_v0Config.cmake
+  NAMESPACE greet_v0::
+  DESTINATION lib/cmake/greet_v0)
 CMAKE
 ```
 
@@ -112,7 +124,7 @@ git init && git add . && git commit -m "initial greet"
 git branch -M main
 
 # Create the package's own (empty) remote and push to it.
-git init --bare "$HOME/remotes/greet.git"
+git init --bare -b main "$HOME/remotes/greet.git"
 git remote add origin "file://$HOME/remotes/greet.git"
 git push -u origin main
 
@@ -132,12 +144,11 @@ mkdir hello && cd hello
 cosm init hello --build cmake
 cosm add greet v0.1.0
 
-mkdir -p src
 cat > src/main.cpp <<'CPP'
 #include <iostream>
-#include "greet/greet.hpp"
+#include "greet_v0/greet.hpp"
 int main() {
-  std::cout << greet::hello("World") << std::endl;
+  std::cout << greet_v0::hello("World") << std::endl;
   return 0;
 }
 CPP
@@ -146,14 +157,19 @@ cat > CMakeLists.txt <<'CMAKE'
 cmake_minimum_required(VERSION 3.24)
 project(hello LANGUAGES CXX)
 
-find_package(greet CONFIG REQUIRED)
+find_package(greet_v0 CONFIG REQUIRED)
 
 add_executable(hello src/main.cpp)
-target_link_libraries(hello PRIVATE greet::greet)
+target_link_libraries(hello PRIVATE greet_v0::greet_v0)
 
 install(TARGETS hello RUNTIME DESTINATION bin)
 CMAKE
 ```
+
+(You reference the library by its C++ binding `greet_v0` — the same
+`find_package` name, include prefix, and `::` namespace. To adopt a later major,
+add `greet@v1` as a separate dependency and switch call sites to `greet_v1::`
+incrementally; both can be linked at the same time.)
 
 ## 5. Build and run
 
@@ -177,7 +193,7 @@ source build:
 
 ```sh
 # from the greet package, after building:
-git init --bare "$HOME/remotes/cosmbin.git"     # the binary registry's empty remote
+git init --bare -b main "$HOME/remotes/cosmbin.git"     # the binary registry's empty remote
 cosm registry init cosmbin "file://$HOME/remotes/cosmbin.git" --kind mixed
 cosm publish --registry cosmbin --store "$HOME/artifacts"
 ```

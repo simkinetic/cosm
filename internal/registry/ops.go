@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -106,7 +107,18 @@ func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 	}
 	head, err := manifest.LoadManifestFromDir(tmp)
 	if err != nil {
-		return "", nil, err
+		// A bare remote created with `git init --bare` keeps its own default branch
+		// as HEAD (often 'master'); if the package lives on a different branch (e.g.
+		// 'main'), `git clone` leaves an empty working tree. Recover by checking out
+		// an actual branch before giving up.
+		if branch := firstRemoteBranch(s.git, tmp); branch != "" {
+			if s.git.Checkout(tmp, branch) == nil {
+				head, err = manifest.LoadManifestFromDir(tmp)
+			}
+		}
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: no cosm.json found in %s (checked its branches)", errs.ErrNoProject, giturl)
+		}
 	}
 	if err := validateManifest(head); err != nil {
 		return "", nil, err
@@ -154,6 +166,39 @@ func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 		}
 	}
 	return head.Name, added, nil
+}
+
+// firstRemoteBranch returns a branch to check out from a fresh clone whose HEAD
+// wasn't checked out (remote HEAD/branch mismatch), preferring main then master.
+func firstRemoteBranch(g gitx.Git, dir string) string {
+	out, err := g.Run(dir, "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin")
+	if err != nil {
+		return ""
+	}
+	var main, master, first string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		name := strings.TrimPrefix(strings.TrimSpace(line), "origin/")
+		if name == "" || name == "HEAD" {
+			continue
+		}
+		if first == "" {
+			first = name
+		}
+		switch name {
+		case "main":
+			main = name
+		case "master":
+			master = name
+		}
+	}
+	switch {
+	case main != "":
+		return main
+	case master != "":
+		return master
+	default:
+		return first
+	}
 }
 
 // registerVersion writes specs.json (commit + tree hash) and appends versions.json.

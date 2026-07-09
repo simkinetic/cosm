@@ -60,7 +60,12 @@ profile itself).
 
 **`cosm init <name> [v<version>]`** — create `cosm.json` in the current directory
 (default version `v0.1.0`).
-- `--build <ext>` — the build-system extension id (e.g. `lua`, `cmake`).
+- `--build <ext>` — the build-system extension id (e.g. `lua`, `cmake`). When set,
+  `init` invokes the extension's `scaffold` verb, which lays down the
+  language-specific source layout and declares the package's module namespace(s);
+  the resulting `provides` (and any default `ext` config) are written into
+  `cosm.json`. If the extension isn't installed, `init` writes the manifest anyway
+  and prints a note.
 
 **`cosm status`** — resolve (offline) and print the project, its direct
 dependencies, and the resolved build list, with `(develop)` markers and any
@@ -196,7 +201,13 @@ Committed to the package's git repo.
 ```
 
 - `build` — the extension id that owns building/activation.
-- `provides` — module namespace(s) exposed, each `<namespace>@v<major>`.
+- `provides` — module namespace(s) exposed, each `<namespace>@v<major>`. The major
+  is part of the namespace so two majors of a package can be consumed at once (the
+  basis for incremental migration). How the namespace binds to source is the
+  extension's business: Lua requires `strutil@v0.strutil` from `src/strutil@v0/`;
+  C++/CMake, where `@` is not a legal identifier, binds `greet@v0` to the C++
+  spelling `greet_v0` (include prefix, `::` namespace, and CMake package/target),
+  so `greet_v0::` and `greet_v1::` coexist.
 - `deps` — direct requirements only; keyed by the **compatibility unit**
   `<uuid>@v<major>`; the `version` is the minimum (MVS floor).
 - `ext` — extension-specific config, opaque to the core.
@@ -301,7 +312,7 @@ version: `1`.
 | Verb | Purpose |
 |------|---------|
 | `info` | Report identity, toolchain id, and capabilities. |
-| `scaffold` | Create a new package skeleton (for templates). |
+| `scaffold` | Create the source layout for a new package and return its `provides` (module namespaces) + any default `ext` config. The core writes `cosm.json`; the extension does not. |
 | `build` | Configure/compile/install a package into a prefix; emit a descriptor. |
 | `test` | (optional) Run the package's tests in the built environment. |
 | `activate` | Produce the run/test environment for a project + its deps. |

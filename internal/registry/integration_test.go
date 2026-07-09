@@ -71,6 +71,44 @@ func makePkg(t *testing.T, name, uuid, version string, deps map[string]types.Dep
 	return "file://" + bare
 }
 
+// makePkgMasterHead is makePkg but with the bare remote's HEAD left at 'master'
+// while the package is pushed on 'main' — the real-world state produced by a plain
+// `git init --bare` (default HEAD) plus `git branch -M main`. A fresh clone of such
+// a remote checks out no working tree, which AddPackage must recover from.
+func makePkgMasterHead(t *testing.T, name, uuid, version string) string {
+	t.Helper()
+	g := gitx.Exec{}
+	work := filepath.Join(t.TempDir(), name)
+	major, _ := semver.Major(version)
+	if err := os.MkdirAll(filepath.Join(work, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := &types.Manifest{Name: name, UUID: uuid, Version: version, Build: "lua",
+		Provides: []string{semver.UnitKey(name, major)}}
+	if err := manifest.SaveManifest(filepath.Join(work, "cosm.json"), m); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "src", name+".lua"), []byte("return {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, g, work, "init")
+	mustRun(t, g, work, "add", ".")
+	mustRun(t, g, work, "commit", "-m", "init")
+	mustRun(t, g, work, "branch", "-M", "main")
+	mustRun(t, g, work, "tag", version)
+
+	bare := filepath.Join(t.TempDir(), name+".git")
+	if err := os.MkdirAll(bare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustRun(t, g, bare, "init", "--bare")
+	mustRun(t, g, bare, "symbolic-ref", "HEAD", "refs/heads/master") // HEAD != pushed branch
+	mustRun(t, g, work, "remote", "add", "origin", "file://"+bare)
+	mustRun(t, g, work, "push", "origin", "main")
+	mustRun(t, g, work, "push", "origin", "--tags")
+	return "file://" + bare
+}
+
 func mustRun(t *testing.T, g gitx.Exec, dir string, args ...string) {
 	t.Helper()
 	if _, err := g.Run(dir, args...); err != nil {
@@ -132,6 +170,32 @@ func TestIntegration_InitAddResolve(t *testing.T) {
 	}
 	if got["lib"] != "v0.1.0" || got["dep"] != "v1.0.0" || len(got) != 2 {
 		t.Fatalf("build list = %v", got)
+	}
+}
+
+// TestIntegration_AddPackageBranchHeadMismatch reproduces the tutorial failure
+// where `git init --bare` leaves HEAD at 'master' but the package is pushed on
+// 'main': the clone has no working tree, and AddPackage must still find cosm.json.
+func TestIntegration_AddPackageBranchHeadMismatch(t *testing.T) {
+	isolateGit(t)
+	d := newDepot(t)
+	svc := NewService(d, gitx.Exec{})
+
+	regRemote := initBare(t, "reg.git")
+	if err := svc.InitRegistry("R", "file://"+regRemote, types.KindSource); err != nil {
+		t.Fatalf("InitRegistry: %v", err)
+	}
+
+	url := makePkgMasterHead(t, "widget", "u-w", "v0.1.0")
+	name, added, err := svc.AddPackage("R", url)
+	if err != nil {
+		t.Fatalf("AddPackage must recover from HEAD/branch mismatch: %v", err)
+	}
+	if name != "widget" || len(added) != 1 || added[0] != "v0.1.0" {
+		t.Fatalf("name=%q added=%v", name, added)
+	}
+	if _, err := NewLoader(d).Load("widget", "u-w", "v0.1.0"); err != nil {
+		t.Fatalf("Load registered version: %v", err)
 	}
 }
 

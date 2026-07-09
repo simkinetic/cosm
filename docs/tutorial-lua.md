@@ -26,14 +26,17 @@ index and pushes the first commit itself.
 **This tutorial needs no accounts or servers.** We simulate every remote with a
 local *bare* repository and a `file://` URL, so you can copy-paste and run it all on
 one machine. A "bare" repo is just a git repo with no working files — the form a
-server stores. We create each one explicitly with `git init --bare` right before it
-is used.
+server stores. We create each one explicitly with `git init --bare -b main` right
+before it is used. The `-b main` makes the bare repo's default branch `main`, so it
+matches the branch we push — without it, a repo created while your git still
+defaults to `master` would clone with an empty working tree and later `cosm registry
+add` couldn't find its `cosm.json`.
 
 **For real use**, swap the local bare repos for repositories on your git host:
 
 | in this tutorial (local) | in real use (e.g. GitHub) |
 |---|---|
-| `git init --bare "$HOME/remotes/foo.git"` | Create a **new empty repo** in the web UI — with **no** README, license, or `.gitignore` (it must be empty). The host stores it bare for you; you never run `git init --bare`. |
+| `git init --bare -b main "$HOME/remotes/foo.git"` | Create a **new empty repo** in the web UI — with **no** README, license, or `.gitignore` (it must be empty). The host stores it bare for you; you never run `git init --bare`. |
 | `file://$HOME/remotes/foo.git` | that repo's clone URL, e.g. `git@github.com:you/foo.git` (SSH is the default) |
 
 Everything else stays identical. First, make a folder to hold the tutorial's local
@@ -55,7 +58,7 @@ export COSM_DEPOT="$HOME/.cosm"   # if not already set
 Create the registry's (empty) remote, then initialize the registry into it:
 
 ```sh
-git init --bare "$HOME/remotes/cosmlua.git"
+git init --bare -b main "$HOME/remotes/cosmlua.git"
 cosm registry init cosmlua "file://$HOME/remotes/cosmlua.git"
 ```
 
@@ -69,12 +72,13 @@ mkdir strutil && cd strutil
 cosm init strutil v0.1.0 --build lua
 ```
 
-`cosm.json` now describes the package. Add a source module under
-`src/<namespace>@v<major>/` — the `@v0` directory is what lets `v0` and a future
-`v1` of the module coexist:
+Because you passed `--build lua`, `cosm init` asks the Lua extension to scaffold
+the package: it writes `cosm.json` (with `"provides": ["strutil@v0"]` already set),
+a source stub at `src/strutil@v0/strutil.lua`, and a `test/` directory. The
+`@v0` in both the namespace and the directory is what lets `v0` and a future `v1`
+of the module coexist. You only need to fill the stub in:
 
 ```sh
-mkdir -p src/strutil@v0
 cat > src/strutil@v0/strutil.lua <<'LUA'
 local strutil = {}
 
@@ -85,8 +89,6 @@ end
 return strutil
 LUA
 ```
-
-Declare the module namespace in `cosm.json` (`"provides": ["strutil@v0"]`).
 
 ## 4. Publish a release
 
@@ -99,7 +101,7 @@ git init && git add . && git commit -m "initial strutil"
 git branch -M main
 
 # Create the package's own (empty) remote and push to it.
-git init --bare "$HOME/remotes/strutil.git"
+git init --bare -b main "$HOME/remotes/strutil.git"
 git remote add origin "file://$HOME/remotes/strutil.git"
 git push -u origin main
 
@@ -126,10 +128,11 @@ cosm init greeter --build lua
 cosm add strutil v0.1.0
 ```
 
-Write the program. Modules are required by their `namespace@vMAJOR.module` path:
+`cosm init` scaffolds a `src/greeter@v0/greeter.lua` stub for the app too; for a
+runnable program we don't need it — just add an entry point. Modules are required
+by their `namespace@vMAJOR.module` path:
 
 ```sh
-mkdir -p src
 cat > src/main.lua <<'LUA'
 local strutil = require("strutil@v0.strutil")
 print(strutil.greet("World"))
