@@ -5,6 +5,7 @@ package service
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"cosm/internal/depot"
 	"cosm/internal/develop"
@@ -100,6 +101,14 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 				return "", "", ferr
 			} else if ok {
 				return v, "(develop)", nil
+			}
+		}
+		// A known package with an unfindable explicit version: say what's actually
+		// available so a stale clone or a typo is obvious (vs a truly unknown name).
+		if version != "" {
+			if _, reg, vers, verr := s.Loader.Versions(name); verr == nil && len(vers) > 0 {
+				return "", "", fmt.Errorf("%w: %s has no version %s in registry '%s' (available: %s; run 'cosm update' if it was published recently)",
+					errs.ErrPackageNotFound, name, version, reg, strings.Join(vers, ", "))
 			}
 		}
 		return "", "", fmt.Errorf("%w: %s%s (try 'cosm update', or 'cosm develop %s --path <dir>' for a local package)",

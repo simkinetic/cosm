@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cosm/internal/depot"
@@ -323,6 +324,30 @@ func TestAddTestDep(t *testing.T) {
 	}
 	if _, ok := m.Deps[semver.UnitKey("u-app", 1)]; !ok {
 		t.Error("rm of test dep disturbed regular deps")
+	}
+}
+
+// TestAddExplicitVersionNotFoundLists: adding an explicit version a known package
+// doesn't have (e.g. a stale clone) reports the available versions, while a truly
+// unknown name keeps the generic hint.
+func TestAddExplicitVersionNotFoundLists(t *testing.T) {
+	d := seedDepot(t)
+	seedPkg(t, d, "R", "p", "u-p", mkSpec("p", "u-p", "v0.1.0"))
+	proj := t.TempDir()
+	writeProject(t, proj, nil)
+	s := New(d, gitx.Exec{})
+
+	_, _, err := s.Add(proj, "p", "v0.2.0", AddOpts{Major: -1}, nil)
+	if err == nil {
+		t.Fatal("expected error for a version the package doesn't have")
+	}
+	if !strings.Contains(err.Error(), "no version v0.2.0") || !strings.Contains(err.Error(), "available: v0.1.0") {
+		t.Fatalf("error should list available versions: %v", err)
+	}
+
+	_, _, err = s.Add(proj, "ghost", "v1.0.0", AddOpts{Major: -1}, nil)
+	if err == nil || strings.Contains(err.Error(), "available:") {
+		t.Fatalf("unknown package should not list versions: %v", err)
 	}
 }
 
