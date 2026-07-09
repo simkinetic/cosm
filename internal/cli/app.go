@@ -267,9 +267,10 @@ func addCmd() *cobra.Command {
 }
 
 func chooseRegistry(name, version string, locs []registry.Location) (registry.Location, error) {
-	fmt.Printf("'%s' found in multiple registries:\n", name)
+	fmt.Printf("'%s' has %d candidates — choose one:\n", name, len(locs))
 	for i, l := range locs {
-		fmt.Printf("  %d. %s (%s)\n", i+1, l.Registry, l.Specs.GitURL)
+		fmt.Printf("  %d. %s %s  [registry '%s', uuid %s]\n       %s\n",
+			i+1, name, l.Specs.Version, l.Registry, shortUUID(l.Specs.UUID), l.Specs.GitURL)
 	}
 	choice := promptLine(fmt.Sprintf("Select 1-%d: ", len(locs)))
 	var n int
@@ -277,6 +278,13 @@ func chooseRegistry(name, version string, locs []registry.Location) (registry.Lo
 		return registry.Location{}, fmt.Errorf("%w: invalid selection %q", errs.ErrUsage, choice)
 	}
 	return locs[n-1], nil
+}
+
+func shortUUID(u string) string {
+	if len(u) > 8 {
+		return u[:8]
+	}
+	return u
 }
 
 func rmCmd() *cobra.Command {

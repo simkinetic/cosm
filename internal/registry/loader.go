@@ -3,6 +3,7 @@ package registry
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"cosm/internal/depot"
 	"cosm/internal/errs"
@@ -78,21 +79,49 @@ func (l *Loader) Find(name, version string) ([]Location, error) {
 		if _, ok := reg.Packages[name]; !ok {
 			continue
 		}
-		v := version
-		if v == "" {
-			lv, err := l.Latest(regDir, name)
-			if err != nil || lv == "" {
+		// With an explicit version, offer just that. With no version, offer the
+		// latest of each major line, so the user can pick the major too.
+		var wanted []string
+		if version != "" {
+			wanted = []string{version}
+		} else {
+			wanted = l.latestPerMajor(regDir, name)
+		}
+		for _, v := range wanted {
+			sp, err := manifest.LoadSpecs(SpecsFile(regDir, name, v))
+			if err != nil || sp.Version != v {
 				continue
 			}
-			v = lv
+			locs = append(locs, Location{Registry: ref.Name, Specs: *sp})
 		}
-		sp, err := manifest.LoadSpecs(SpecsFile(regDir, name, v))
-		if err != nil || sp.Version != v {
-			continue
-		}
-		locs = append(locs, Location{Registry: ref.Name, Specs: *sp})
 	}
 	return locs, nil
+}
+
+// latestPerMajor returns the highest version within each major line of a package,
+// ordered newest major first.
+func (l *Loader) latestPerMajor(regDir, name string) []string {
+	vs, _ := manifest.LoadVersions(VersionsFile(regDir, name))
+	best := map[int]string{}
+	for _, v := range vs {
+		mj, err := semver.Major(v)
+		if err != nil {
+			continue
+		}
+		if cur, ok := best[mj]; !ok || semver.Compare(v, cur) > 0 {
+			best[mj] = v
+		}
+	}
+	majors := make([]int, 0, len(best))
+	for mj := range best {
+		majors = append(majors, mj)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(majors)))
+	out := make([]string, 0, len(majors))
+	for _, mj := range majors {
+		out = append(out, best[mj])
+	}
+	return out
 }
 
 // Versions returns the package's uuid, the registry it lives in, and its

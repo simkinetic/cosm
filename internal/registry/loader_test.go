@@ -92,6 +92,35 @@ func TestLoaderLoadAndFind(t *testing.T) {
 	}
 }
 
+func TestFindPerMajor(t *testing.T) {
+	d := newDepot(t)
+	seedRegistry(t, d, "R", map[string]string{"p": "u-p"},
+		spec("p", "u-p", "v0.6.0"),
+		spec("p", "u-p", "v0.7.0"),
+		spec("p", "u-p", "v1.0.0"),
+		spec("p", "u-p", "v1.2.0"),
+	)
+	l := NewLoader(d)
+
+	// No version -> latest of each major line, newest major first.
+	locs, err := l.Find("p", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(locs) != 2 {
+		t.Fatalf("expected 2 candidates (one per major), got %d: %+v", len(locs), locs)
+	}
+	if locs[0].Specs.Version != "v1.2.0" || locs[1].Specs.Version != "v0.7.0" {
+		t.Fatalf("per-major latest wrong/misordered: %s, %s", locs[0].Specs.Version, locs[1].Specs.Version)
+	}
+
+	// An explicit version still returns exactly that one.
+	one, err := l.Find("p", "v0.6.0")
+	if err != nil || len(one) != 1 || one[0].Specs.Version != "v0.6.0" {
+		t.Fatalf("explicit version: %+v %v", one, err)
+	}
+}
+
 // TestResolveFromDisk composes the real Loader with the pure resolver.
 func TestResolveFromDisk(t *testing.T) {
 	d := newDepot(t)
