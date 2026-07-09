@@ -218,9 +218,64 @@ func TestAddMultiRegistry(t *testing.T) {
 		}
 		return ls[0], nil
 	}
-	ver, reg, err := s.Add(proj, "p", "v1.0.0", chooser)
+	ver, reg, err := s.Add(proj, "p", "v1.0.0", AddOpts{Major: -1}, chooser)
 	if err != nil || ver != "v1.0.0" || reg != "R2" || chosen != "R2" {
 		t.Fatalf("multi-registry add: ver=%s reg=%s chosen=%s err=%v", ver, reg, chosen, err)
+	}
+
+	// --registry fast-path: a single candidate remains after filtering, so no
+	// chooser is consulted (nil chooser must not be called).
+	proj2 := t.TempDir()
+	writeProject(t, proj2, nil)
+	ver, reg, err = s.Add(proj2, "p", "v1.0.0", AddOpts{Registry: "R2", Major: -1}, nil)
+	if err != nil || reg != "R2" {
+		t.Fatalf("registry fast-path: reg=%s err=%v", reg, err)
+	}
+
+	// A registry that has no such package errors instead of prompting.
+	proj3 := t.TempDir()
+	writeProject(t, proj3, nil)
+	if _, _, err := s.Add(proj3, "p", "v1.0.0", AddOpts{Registry: "nope", Major: -1}, nil); err == nil {
+		t.Fatal("expected not-found for unknown registry filter")
+	}
+}
+
+func TestAddMajorFastPath(t *testing.T) {
+	d := seedDepot(t)
+	// Two major lines of the same package coexist in one registry.
+	seedPkg(t, d, "R", "p", "u-p",
+		mkSpec("p", "u-p", "v0.7.0"),
+		mkSpec("p", "u-p", "v1.2.0"),
+	)
+	s := New(d, gitx.Exec{})
+
+	// No version + two majors is ambiguous; a nil chooser must not be called.
+	proj := t.TempDir()
+	writeProject(t, proj, nil)
+	if _, _, err := s.Add(proj, "p", "", AddOpts{Major: -1}, nil); err == nil {
+		t.Fatal("expected ambiguity error with two majors and no chooser")
+	}
+
+	// --major selects one line non-interactively.
+	proj0 := t.TempDir()
+	writeProject(t, proj0, nil)
+	ver, _, err := s.Add(proj0, "p", "", AddOpts{Major: 0}, nil)
+	if err != nil || ver != "v0.7.0" {
+		t.Fatalf("major=0 fast-path: ver=%s err=%v", ver, err)
+	}
+
+	proj1 := t.TempDir()
+	writeProject(t, proj1, nil)
+	ver, _, err = s.Add(proj1, "p", "", AddOpts{Major: 1}, nil)
+	if err != nil || ver != "v1.2.0" {
+		t.Fatalf("major=1 fast-path: ver=%s err=%v", ver, err)
+	}
+
+	// A major line that doesn't exist errors.
+	proj9 := t.TempDir()
+	writeProject(t, proj9, nil)
+	if _, _, err := s.Add(proj9, "p", "", AddOpts{Major: 9}, nil); err == nil {
+		t.Fatal("expected not-found for absent major")
 	}
 }
 
@@ -231,7 +286,7 @@ func TestAddAndRm(t *testing.T) {
 	writeProject(t, proj, nil)
 	s := New(d, gitx.Exec{})
 
-	ver, reg, err := s.Add(proj, "p", "v1.0.0", nil)
+	ver, reg, err := s.Add(proj, "p", "v1.0.0", AddOpts{Major: -1}, nil)
 	if err != nil || ver != "v1.0.0" || reg != "R" {
 		t.Fatalf("add: %s %s %v", ver, reg, err)
 	}

@@ -46,8 +46,18 @@ func (s *Service) Resolve(projectDir string) (*types.Manifest, types.BuildList, 
 // RegistryChooser is called when a package is found in multiple registries.
 type RegistryChooser func(name, version string, locs []registry.Location) (registry.Location, error)
 
-// Add adds a dependency to the project's cosm.json (§12.2).
-func (s *Service) Add(projectDir, name, version string, choose RegistryChooser) (chosenVersion, chosenRegistry string, err error) {
+// AddOpts narrows candidate selection non-interactively (a fast-path around the
+// chooser prompt, for scripts/CI).
+type AddOpts struct {
+	Registry string // "" = any registry
+	Major    int    // -1 = any major
+}
+
+// Add adds a dependency to the project's cosm.json (§12.2). When more than one
+// candidate matches (multiple registries and/or majors), opts filters them; if a
+// single candidate remains it is used without prompting, otherwise choose is
+// called.
+func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose RegistryChooser) (chosenVersion, chosenRegistry string, err error) {
 	m, err := manifest.LoadManifestFromDir(projectDir)
 	if err != nil {
 		return "", "", err
@@ -56,11 +66,23 @@ func (s *Service) Add(projectDir, name, version string, choose RegistryChooser) 
 	if err != nil {
 		return "", "", err
 	}
+	if opts.Registry != "" {
+		locs = filterLocs(locs, func(l registry.Location) bool { return l.Registry == opts.Registry })
+	}
+	if opts.Major >= 0 {
+		locs = filterLocs(locs, func(l registry.Location) bool {
+			mj, e := semver.Major(l.Specs.Version)
+			return e == nil && mj == opts.Major
+		})
+	}
 	if len(locs) == 0 {
-		return "", "", fmt.Errorf("%w: %s (try 'cosm update')", errs.ErrPackageNotFound, name)
+		return "", "", fmt.Errorf("%w: %s%s (try 'cosm update')", errs.ErrPackageNotFound, name, filterSuffix(opts))
 	}
 	loc := locs[0]
 	if len(locs) > 1 {
+		if choose == nil {
+			return "", "", fmt.Errorf("%w: %s is ambiguous; narrow it with --registry and/or --major (or a version)", errs.ErrUsage, name)
+		}
 		if loc, err = choose(name, version, locs); err != nil {
 			return "", "", err
 		}
@@ -111,4 +133,25 @@ func (s *Service) Rm(projectDir, name string, choose DepChooser) error {
 	}
 	delete(m.Deps, key)
 	return manifest.SaveManifest(filepath.Join(projectDir, "cosm.json"), m)
+}
+
+func filterLocs(locs []registry.Location, keep func(registry.Location) bool) []registry.Location {
+	out := locs[:0:0]
+	for _, l := range locs {
+		if keep(l) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func filterSuffix(opts AddOpts) string {
+	s := ""
+	if opts.Registry != "" {
+		s += fmt.Sprintf(" in registry '%s'", opts.Registry)
+	}
+	if opts.Major >= 0 {
+		s += fmt.Sprintf(" at major v%d", opts.Major)
+	}
+	return s
 }

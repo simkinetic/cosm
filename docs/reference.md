@@ -67,8 +67,16 @@ dependencies, and the resolved build list, with `(develop)` markers and any
 v0-minor-bump warnings.
 
 **`cosm add <name> [v<version>]`** — add a dependency. Looks the package up in the
-local registries (prompting if it is found in more than one); with no version it
-takes the latest. Writes to `cosm.json` only — no network mutation.
+local registries (prompting if it is found in more than one registry, or spans
+multiple major lines); with no version it takes the latest of each major. Writes to
+`cosm.json` only — no network mutation.
+- `--registry <name>` — restrict to one registry (skips the prompt when that leaves
+  a single candidate). For scripts/CI.
+- `--major <n>` — restrict to one major line (e.g. `--major 0`). For scripts/CI.
+
+  These flags disambiguate non-interactively: they filter the candidates before the
+  chooser runs, so a single remaining match is added without prompting; if none
+  match, the command errors instead of blocking on a prompt.
 
 **`cosm rm <name>`** — remove a dependency (prompts if the name spans multiple
 majors).

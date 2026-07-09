@@ -238,7 +238,7 @@ func sortedEntries(m map[string]types.BuildListEntry) []types.BuildListEntry {
 // ---- add / rm ----
 
 func addCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "add <name> [v<version>]",
 		Short: "Add a dependency",
 		Args:  cobra.RangeArgs(1, 2),
@@ -255,8 +255,11 @@ func addCmd() *cobra.Command {
 					return fmt.Errorf("%w: version must start with 'v'", errs.ErrUsage)
 				}
 			}
+			var opts service.AddOpts
+			opts.Registry, _ = cmd.Flags().GetString("registry")
+			opts.Major, _ = cmd.Flags().GetInt("major")
 			cwd, _ := os.Getwd()
-			ver, reg, err := s.Add(cwd, name, version, chooseRegistry)
+			ver, reg, err := s.Add(cwd, name, version, opts, chooseRegistry)
 			if err != nil {
 				return err
 			}
@@ -264,6 +267,9 @@ func addCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String("registry", "", "select a registry when the name is ambiguous (non-interactive)")
+	cmd.Flags().Int("major", -1, "select a major version line when the name is ambiguous (non-interactive)")
+	return cmd
 }
 
 func chooseRegistry(name, version string, locs []registry.Location) (registry.Location, error) {
