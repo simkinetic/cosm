@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Configure git identity
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+      - name: Vet
+        run: go vet ./...
+      - name: Test + coverage gate
+        run: bash scripts/coverage.sh
+
+  build:
+    name: Build binaries
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+      - name: Build cosm + extensions
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          v="${GITHUB_REF_NAME}"
+          suffix="${GOOS}-${GOARCH}"
+          go build -ldflags "-X main.version=${v}" -o "cosm-${suffix}" .
+          go build -o "cosm-ext-lua-${suffix}" ./cmd/cosm-ext-lua
+          go build -o "cosm-ext-cmake-${suffix}" ./cmd/cosm-ext-cmake
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cosm-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: cosm-*-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error

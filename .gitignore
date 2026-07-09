@@ -1,0 +1,6 @@
+/cosm
+/cosm-ext-lua
+/cosm-ext-cmake
+/cosm-*-*
+coverage.out
+*.out
