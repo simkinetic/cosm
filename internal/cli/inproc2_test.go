@@ -53,8 +53,8 @@ func TestInProcess_RegistryAndBuildCommands(t *testing.T) {
 	ok(runCLI(t, home, "registry", "add", "R", depRemote))
 
 	// registry update (pull, no-op) and status.
-	ok(runCLI(t, home, "registry", "update", "R"))
-	ok(runCLI(t, home, "update", "--all"))
+	ok(runCLI(t, home, "update", "R"))
+	ok(runCLI(t, home, "update"))
 
 	// registry rm a version, then confirm status reflects it.
 	ok(runCLI(t, home, "registry", "rm", "R", "dep", "v0.2.0", "--force"))

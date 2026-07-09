@@ -109,7 +109,7 @@ func gitAuthors(g gitx.Git) []types.Author {
 // ---- setup ----
 
 func setupCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Initialize the depot",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -120,11 +120,20 @@ func setupCmd() *cobra.Command {
 			if err := d.Setup(); err != nil {
 				return err
 			}
+			if store, _ := cmd.Flags().GetString("store"); store != "" {
+				cfg, _ := d.LoadConfig()
+				cfg.ArtifactStore = store
+				if err := d.SaveConfig(cfg); err != nil {
+					return err
+				}
+			}
 			fmt.Printf("Depot ready at %s\n", d.Root)
 			fmt.Printf("To pin it for this shell: export COSM_DEPOT=%q\n", d.Root)
 			return nil
 		},
 	}
+	cmd.Flags().String("store", "", "default artifact store directory for 'cosm publish'")
+	return cmd
 }
 
 // ---- init ----
@@ -142,8 +151,6 @@ func initCmd() *cobra.Command {
 			version := "v0.1.0"
 			if len(args) == 2 {
 				version = args[1]
-			} else if v, _ := cmd.Flags().GetString("version"); v != "" {
-				version = v
 			}
 			if err := semver.ValidateExact(version); err != nil {
 				return fmt.Errorf("%w: %v", errs.ErrUsage, err)
@@ -163,7 +170,6 @@ func initCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("version", "", "initial version (default v0.1.0)")
 	cmd.Flags().String("build", "", "build-system extension id (e.g. lua, cmake)")
 	return cmd
 }
@@ -352,16 +358,14 @@ func updateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			all, _ := cmd.Flags().GetBool("all")
-			// A single named registry (unless --all forces the whole set).
-			if len(args) == 1 && !all {
+			// A single named registry, else every registry.
+			if len(args) == 1 {
 				if err := s.Reg.UpdateRegistry(args[0]); err != nil {
 					return err
 				}
 				fmt.Printf("Updated %s\n", args[0])
 				return nil
 			}
-			// Default: update every registry.
 			updated, failures := s.Reg.UpdateAll()
 			for _, n := range updated {
 				fmt.Printf("Updated %s\n", n)
@@ -378,6 +382,5 @@ func updateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("all", false, "update all registries (the default)")
 	return cmd
 }

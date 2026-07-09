@@ -141,11 +141,16 @@ Back in the library, cut and register a new release, then upgrade the app:
 cd ../strutil
 # ...make changes, commit...
 cosm release --patch                 # v0.1.1
-cosm registry add cosmlua strutil v0.1.1
-cd ../greeter
+cd ..
+cosm registry add cosmlua "file://$HOME/remotes/strutil.git"   # idempotent: picks up v0.1.1
+cd greeter
 cosm upgrade strutil                 # raises the floor to v0.1.1
 ```
 
 That's the whole loop: **init → release → register → add → build → run →
-develop → upgrade**. See the [C++/CMake tutorial](tutorial-cpp.md) for a compiled
-language.
+develop → upgrade**.
+
+## Next steps
+
+- The [C++/CMake tutorial](tutorial-cpp.md) does the same for a compiled language.
+- The [reference](reference.md) documents every command, flag, and file format.

@@ -141,8 +141,13 @@ cosm registry init cosmbin "file://$HOME/remotes/cosmbin.git" --kind mixed
 cosm publish --registry cosmbin --store "$HOME/artifacts"
 ```
 
+`--store` can be omitted if you set a default once with
+`cosm setup --store "$HOME/artifacts"` (recorded in `config.json`).
+
 A consumer that can reach `cosmbin` (and the artifact store) resolves and uses the
 binary; access is gated purely by registry/store permissions.
 
-That's the compiled-language loop end to end. See the
-[Lua tutorial](tutorial-lua.md) for an interpreted language.
+## Next steps
+
+- The [Lua tutorial](tutorial-lua.md) does the same for an interpreted language.
+- The [reference](reference.md) documents every command, flag, and file format.

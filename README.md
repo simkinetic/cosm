@@ -2,7 +2,7 @@
 
 A language-agnostic package manager built on **Minimal Version Selection** (MVS),
 with an integrated git-based registry and out-of-process build-system extensions.
-This is the vNext implementation of the design in [SPEC.md](../cosm/SPEC.md).
+This is the vNext implementation of the design in [docs/SPEC.md](docs/SPEC.md).
 
 ## Highlights
 
@@ -30,15 +30,17 @@ make build extensions      # produces ./cosm, ./cosm-ext-lua, ./cosm-ext-cmake
 Put all three on your `PATH` (or install extensions under
 `$COSM_DEPOT/extensions/<id>/cosm-ext-<id>`).
 
-## Tutorials
+## Documentation
 
-Step-by-step, end-to-end walkthroughs (each is also an integration test, so the
-commands are verified to work):
-
-- [Lua tutorial](docs/tutorial-lua.md) — publish a library, consume it, build,
-  run, and co-develop.
-- [C++ / CMake tutorial](docs/tutorial-cpp.md) — a compiled library + app with
-  `find_package`, plus optional binary distribution.
+- **[Reference](docs/reference.md)** — the complete API: every command and flag,
+  the on-disk formats, the depot layout, and the extension protocol.
+- **[Lua tutorial](docs/tutorial-lua.md)** — publish a library, consume it, build,
+  run, and co-develop. *(Also an integration test, so it stays correct.)*
+- **[C++ / CMake tutorial](docs/tutorial-cpp.md)** — a compiled library + app with
+  `find_package`, plus optional binary distribution. *(Also an integration test.)*
+- **[Registry CI](docs/registry-ci.md)** — keeping a registry up to date
+  server-side with a scheduled `cosm registry sync`.
+- **[SPEC](docs/SPEC.md)** — the full design specification.
 
 ## Quick start
 
@@ -68,8 +70,11 @@ cosm run -- lua src/main.lua                 # run in the assembled environment
 | Project | `init`, `status`, `add`, `rm`, `upgrade`, `downgrade`, `release` |
 | Build/run | `build`, `run`, `test`, `env`, `shell` |
 | Develop | `develop`, `free` |
-| Registry | `registry init [--kind]/clone/add/rm/status/update/delete/sync`, `update` |
+| Registry | `registry init [--kind]/clone/add/rm/status/delete/sync`, `update` |
 | Binaries | `publish` (to a binary/mixed registry) |
+
+See the **[reference](docs/reference.md)** for every command's arguments, flags,
+and behavior.
 
 Registries are maintained **server-side**: `cosm update` (clients) is a read-only
 `git pull`, while a scheduled `cosm registry sync` on the registry discovers and

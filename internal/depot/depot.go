@@ -19,6 +19,28 @@ type Config struct {
 	Depot         string `json:"depot"`
 	DefaultShell  string `json:"defaultShell,omitempty"`
 	TemplatesRepo string `json:"templatesRepo,omitempty"`
+	ArtifactStore string `json:"artifactStore,omitempty"` // default store dir for `cosm publish`
+}
+
+// LoadConfig reads the depot's config.json.
+func (d Depot) LoadConfig() (Config, error) {
+	var cfg Config
+	data, err := os.ReadFile(d.ConfigFile())
+	if err != nil {
+		return Config{}, err
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// SaveConfig writes the depot's config.json.
+func (d Depot) SaveConfig(cfg Config) error {
+	if cfg.SchemaVersion == 0 {
+		cfg.SchemaVersion = types.SchemaVersion
+	}
+	return writeJSON(d.ConfigFile(), cfg)
 }
 
 // Depot is a handle to a depot root directory.

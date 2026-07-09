@@ -19,7 +19,7 @@ func registryCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		registryInitCmd(), registryCloneCmd(), registryAddCmd(),
-		registryRmCmd(), registryStatusCmd(), registryUpdateCmd(), registryDeleteCmd(),
+		registryRmCmd(), registryStatusCmd(), registryDeleteCmd(),
 		registrySyncCmd(),
 	)
 	return cmd
@@ -72,26 +72,23 @@ func registryCloneCmd() *cobra.Command {
 
 func registryAddCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "add <name> <giturl> | <name> <pkg> <version>",
-		Short: "Register a package (all versions) or a single version",
-		Args:  cobra.RangeArgs(2, 3),
+		Use:   "add <name> <giturl>",
+		Short: "Register a package and its released versions (idempotent; picks up new tags)",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := newService()
 			if err != nil {
 				return err
 			}
-			if len(args) == 2 {
-				name, added, err := s.Reg.AddPackage(args[0], args[1])
-				if err != nil {
-					return err
-				}
-				fmt.Printf("Added package '%s' (%d versions) to '%s'\n", name, len(added), args[0])
-				return nil
-			}
-			if err := s.Reg.AddVersion(args[0], args[1], args[2]); err != nil {
+			name, added, err := s.Reg.AddPackage(args[0], args[1])
+			if err != nil {
 				return err
 			}
-			fmt.Printf("Added %s@%s to '%s'\n", args[1], args[2], args[0])
+			if len(added) == 0 {
+				fmt.Printf("Package '%s' already up to date in '%s'\n", name, args[0])
+			} else {
+				fmt.Printf("Added '%s' (%d version(s)) to '%s'\n", name, len(added), args[0])
+			}
 			return nil
 		},
 	}
@@ -155,25 +152,6 @@ func registryStatusCmd() *cobra.Command {
 				}
 				fmt.Printf("  - %s: %s\n", p.Name, vers)
 			}
-			return nil
-		},
-	}
-}
-
-func registryUpdateCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "update <name>",
-		Short: "Pull a registry from its remote",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			s, err := newService()
-			if err != nil {
-				return err
-			}
-			if err := s.Reg.UpdateRegistry(args[0]); err != nil {
-				return err
-			}
-			fmt.Printf("Updated %s\n", args[0])
 			return nil
 		},
 	}

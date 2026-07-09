@@ -80,7 +80,10 @@ func (s *Service) registerRef(ref types.RegistryRef) error {
 	return manifest.SaveRegistryRefs(s.d.RegistriesFile(), refs)
 }
 
-// AddPackage registers a new package (all its released versions) from giturl.
+// AddPackage registers a package from giturl and records every released version
+// not already present. It is idempotent: on a package that's already registered
+// it simply picks up any new tags (a per-package sync). Returns the package name
+// and the versions newly added.
 func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 	regDir := s.d.Registry(regName)
 	reg, err := manifest.LoadRegistry(MetaFile(regDir))
@@ -108,20 +111,27 @@ func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 	if err := validateManifest(head); err != nil {
 		return "", nil, err
 	}
-	if _, ok := reg.Packages[head.Name]; ok {
-		return "", nil, fmt.Errorf("package %q already registered in %q", head.Name, regName)
+	// Guard against a name collision with a different package.
+	if existing, ok := reg.Packages[head.Name]; ok && existing.UUID != head.UUID {
+		return "", nil, fmt.Errorf("%w: %q already registered with a different UUID", errs.ErrUsage, head.Name)
 	}
 	tags, err := s.git.ListTags(tmp)
 	if err != nil {
 		return "", nil, err
 	}
+	registered, _ := manifest.LoadVersions(VersionsFile(regDir, head.Name))
 	var added []string
 	for _, tag := range validSemverTags(tags) {
+		if contains(registered, tag) {
+			continue
+		}
 		if err := s.registerVersion(regDir, head.Name, head.UUID, giturl, tag, tmp); err != nil {
 			return "", nil, err
 		}
 		added = append(added, tag)
 	}
+
+	_, known := reg.Packages[head.Name]
 	reg.Packages[head.Name] = types.PackageInfo{UUID: head.UUID, GitURL: giturl}
 	if err := manifest.SaveRegistry(MetaFile(regDir), reg); err != nil {
 		return "", nil, err
@@ -134,47 +144,16 @@ func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 			moved = true
 		}
 	}
-	msg := "Add package " + head.Name
-	if len(added) > 0 {
-		msg = fmt.Sprintf("Add package %s (%d versions)", head.Name, len(added))
-	}
-	if err := s.commitPush(regDir, msg); err != nil {
-		return "", nil, err
-	}
-	return head.Name, added, nil
-}
-
-// AddVersion registers a single new version of an already-registered package.
-func (s *Service) AddVersion(regName, pkgName, version string) error {
-	if err := semver.ValidateExact(version); err != nil {
-		return fmt.Errorf("%w: %v", errs.ErrUsage, err)
-	}
-	regDir := s.d.Registry(regName)
-	reg, err := manifest.LoadRegistry(MetaFile(regDir))
-	if err != nil {
-		return fmt.Errorf("%w: %s", errs.ErrRegistryNotFound, regName)
-	}
-	pkg, ok := reg.Packages[pkgName]
-	if !ok {
-		return fmt.Errorf("%w: package %q not in registry %q", errs.ErrPackageNotFound, pkgName, regName)
-	}
-	existing, _ := manifest.LoadVersions(VersionsFile(regDir, pkgName))
-	if contains(existing, version) {
-		return fmt.Errorf("%w: %s@%s in %s", errs.ErrVersionExists, pkgName, version, regName)
-	}
-	mirror := s.d.Mirror(pkg.UUID)
-	if _, err := os.Stat(mirror); os.IsNotExist(err) {
-		if err := s.git.Clone(pkg.GitURL, mirror); err != nil {
-			return err
+	if !known || len(added) > 0 {
+		msg := fmt.Sprintf("Add package %s (%d versions)", head.Name, len(added))
+		if known {
+			msg = fmt.Sprintf("Add %d version(s) to package %s", len(added), head.Name)
+		}
+		if err := s.commitPush(regDir, msg); err != nil {
+			return "", nil, err
 		}
 	}
-	if err := s.git.Fetch(mirror, "--tags"); err != nil {
-		return err
-	}
-	if err := s.registerVersion(regDir, pkgName, pkg.UUID, pkg.GitURL, version, mirror); err != nil {
-		return err
-	}
-	return s.commitPush(regDir, fmt.Sprintf("Add %s@%s", pkgName, version))
+	return head.Name, added, nil
 }
 
 // registerVersion writes specs.json (commit + tree hash) and appends versions.json.

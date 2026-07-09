@@ -7,8 +7,8 @@ itself, not by clients.
 
 Two ways a version enters a registry:
 
-1. **Explicit** — a maintainer runs `cosm registry add <registry> <package>
-   <version>` for immediate registration.
+1. **Explicit** — a maintainer runs `cosm registry add <registry> <package-giturl>`
+   for immediate registration (it's idempotent and picks up any new tags).
 2. **Automatic** — a scheduled job runs `cosm registry sync <registry>`, which
    scans every registered package's git remote for new semver tags and registers
    any that are missing, in one atomic commit + push.

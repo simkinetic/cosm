@@ -163,16 +163,18 @@ func TestIntegration_AddVersion(t *testing.T) {
 	mustRun(t, g, clone, "push", "origin", "main")
 	mustRun(t, g, clone, "push", "origin", "--tags")
 
-	if err := svc.AddVersion("R", "p", "v1.1.0"); err != nil {
-		t.Fatalf("AddVersion: %v", err)
+	// Re-adding the package picks up the new tag (idempotent).
+	_, added, err := svc.AddPackage("R", url)
+	if err != nil || len(added) != 1 || added[0] != "v1.1.0" {
+		t.Fatalf("re-add should register v1.1.0: added=%v err=%v", added, err)
 	}
-	// Duplicate must be rejected.
-	if err := svc.AddVersion("R", "p", "v1.1.0"); err == nil {
-		t.Fatal("expected ErrVersionExists on duplicate")
+	// Adding again with nothing new is a no-op.
+	if _, added, err := svc.AddPackage("R", url); err != nil || len(added) != 0 {
+		t.Fatalf("idempotent re-add: added=%v err=%v", added, err)
 	}
 	loc, err := NewLoader(d).Find("p", "")
 	if err != nil || len(loc) != 1 || loc[0].Specs.Version != "v1.1.0" {
-		t.Fatalf("latest after AddVersion: %+v %v", loc, err)
+		t.Fatalf("latest after re-add: %+v %v", loc, err)
 	}
 }
 

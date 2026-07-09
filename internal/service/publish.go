@@ -25,8 +25,13 @@ type PublishOpts struct {
 // Publish builds the current project for the local platform, uploads the built
 // artifact to the store, and records a binary in the registry (§8.5).
 func (s *Service) Publish(projectDir string, opts PublishOpts) (string, error) {
+	if opts.Store == "" {
+		if cfg, err := s.D.LoadConfig(); err == nil {
+			opts.Store = cfg.ArtifactStore
+		}
+	}
 	if opts.Registry == "" || opts.Store == "" {
-		return "", fmt.Errorf("%w: --registry and --store are required", errs.ErrUsage)
+		return "", fmt.Errorf("%w: --registry required, and --store (or 'artifactStore' in config.json)", errs.ErrUsage)
 	}
 	if opts.BuildType == "" {
 		opts.BuildType = "Release"
