@@ -612,7 +612,7 @@ Verbs:
 | Verb | Purpose |
 |------|---------|
 | `info` | Report identity/capabilities. |
-| `scaffold` | Create a new package skeleton (for `cosm init --template`). |
+| `scaffold` | Create a new package's source layout for `cosm init --build <ext>`, and return its module namespaces (`provides`) + any default `ext`. The core writes `cosm.json`; the extension does not. |
 | `build` | Configure/compile/install a version into a prefix; emit a descriptor. |
 | `test` | (optional) Run the package's test suite in the built environment. |
 | `activate` | Produce the run/test environment for a root project + its deps. |
@@ -665,7 +665,8 @@ The core merges `prependPaths` in dependency order and applies `env` verbatim.
   using the package's `provides` namespaces to shape `?` roots.
 - `activate`: merge deps' `luaPath`/`luaCPath` into `LUA_PATH`/`LUA_CPATH`
   (`;;`-terminated), add the root project's own `src`.
-- `scaffold`: emit `cosm.json` + `src/<name>@v0/<name>.lua` + a test stub.
+- `scaffold`: create `src/<name>@v<major>/<name>.lua` + a test stub, and return
+  `provides: ["<name>@v<major>"]` (the core writes `cosm.json`).
 
 ### 9.5 Reference extension — C++/CMake (`cosm-ext-cmake`)
 - `build`:
@@ -684,6 +685,10 @@ The core merges `prependPaths` in dependency order and applies `env` verbatim.
   (darwin) / `LD_LIBRARY_PATH` (linux) from `libDirs`, `PATH` from `binDirs`.
   `toolchainId` reflects compiler id+version so the build key changes across
   toolchains.
+- `scaffold`: create a starter `CMakeLists.txt`, `include/<name>_v<major>/<name>.hpp`,
+  and `src/<name>.cpp` (the versioned C++ binding of the namespace, §4.1), and return
+  `provides: ["<name>@v<major>"]` plus a default `ext.cmake.minimumVersion` (the core
+  writes `cosm.json`).
 - Platform: derive `.dylib`/`.so`(/`.dll` later) from `platform.os`.
 
 ### 9.6 Extension guarantees
@@ -768,13 +773,13 @@ git-like; cobra or equivalent. Global flags on every command:
 `--depot <path>`.
 
 ### 12.1 Project lifecycle
-- `cosm init <name> [v<version>] [--build <ext>] [--template <ext>/<tmpl>]`
-  Creates `cosm.json` (default `v0.1.0`). With `--template`, delegates skeleton
-  creation to the extension's `scaffold` (fixes the prototype's unrenamed
-  `PkgTemplate@vMAJOR` bug — scaffold substitutes name **and** major in paths and
-  contents). `--build` names the extension explicitly; `--template <ext>/<tmpl>`
-  implies it from the template's `<ext>` prefix — so the two are mutually exclusive.
-  Plain `init` (neither flag) writes only `cosm.json`.
+- `cosm init <name> [v<version>] [--build <ext>]`
+  Creates `cosm.json` (default `v0.1.0`). With `--build`, delegates skeleton creation
+  to that extension's `scaffold` (substitutes name **and** major in paths and
+  contents, fixing the prototype's unrenamed `PkgTemplate@vMAJOR` bug); the returned
+  `provides`/`ext` are folded into the manifest the core writes. If the extension is
+  absent, the manifest is still written (with a note). Plain `init` (no `--build`)
+  writes only `cosm.json`.
 - `cosm status` — resolves (offline) and prints the project, its direct deps (bold),
   and the resolved build list with selected versions; flags v0 minor bumps and
   develop-mode packages.
