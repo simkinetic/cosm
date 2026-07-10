@@ -785,13 +785,18 @@ git-like; cobra or equivalent. Global flags on every command:
   develop-mode packages.
 
 ### 12.2 Dependencies
-- `cosm add <name> [v<version>] [--registry <r>] [--major <n>] [--test]` — look up in
-  local registries (prompt on multi-registry match), add to `deps` (or `testDeps`
-  with `--test`) keyed by `<uuid>@vMAJOR`. No network mutation. If `<name>` is not in
-  any registry but has been adopted into the dev workspace (§12.7,
-  `cosm develop --path`), fall back to that local checkout for identity — this lets a
-  project depend on an **unpublished** sibling. Otherwise hint to `cosm update` /
-  `cosm develop --path`.
+- `cosm add <name> [v<version>] [--registry <r>] [--major <n>] [--test] [--offline]` —
+  look up in local registries (prompt on multi-registry match), add to `deps` (or
+  `testDeps` with `--test`) keyed by `<uuid>@vMAJOR`. **Offline when the local clone
+  already has the package/version** (no network, deterministic); only on a miss does
+  it perform a **lazy, targeted pull** of the relevant registry (the pinned one, else
+  the one already holding the package, else all) once and retry, so a version
+  published since the last `cosm update` still resolves. `--offline` (or `COSM_OFFLINE`)
+  suppresses the pull for reproducible/CI resolution. `add` never mutates a registry.
+  If `<name>` is not in any registry but has been adopted into the dev workspace
+  (§12.7, `cosm develop --path`), fall back to that local checkout for identity — this
+  lets a project depend on an **unpublished** sibling. A still-missing explicit
+  version errors with the versions actually available.
 - `cosm rm <name>` — remove (prompt if multiple majors present).
 - `cosm upgrade <name> [v<x>|v<x.y>|v<x.y.z>] [--latest] [--all]` — raise the floor
   in `deps` conservatively (latest compatible) or to `--latest`. Partial constraints
@@ -847,9 +852,12 @@ a spawned subshell is one option, not the only one.
   do for a source registry (§8.5).
 
 ### 12.6 Sync
-- `cosm update [<name> | --all]` — the explicit network step: `git pull` each
-  registry and record any new upstream tags (with integrity checks, §6.5). This is
-  the only implicit-tag-discovery path, and it is never triggered by `add`/`status`.
+- `cosm update [<name> | --all]` — the explicit, whole-registry network step: `git
+  pull` each registry and record any new upstream tags (with integrity checks, §6.5).
+  `cosm status` never touches the network. `cosm add` is offline on a hit, but on a
+  **miss** it performs a lazy, targeted pull of the relevant registry and retries
+  (§12.2) — a self-heal for stale clones — unless `--offline`/`COSM_OFFLINE` is set.
+  Neither command discovers tags for a package the local registries don't reference.
 
 ### 12.7 Develop (shared checkouts, per-project opt-in)
 `develop` maintains shared co-development checkouts under `$COSM_DEPOT/dev/` (edit a

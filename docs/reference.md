@@ -76,14 +76,18 @@ v0-minor-bump warnings.
 **`cosm add <name> [v<version>]`** — add a dependency. Looks the package up in the
 local registries (prompting if it is found in more than one registry, or spans
 multiple major lines); with no version it takes the latest of each major. Writes to
-`cosm.json` only — no network mutation. If `<name>` isn't in any registry but has
-been adopted into the dev workspace (`cosm develop <name> --path <dir>`), it falls
-back to that local checkout for the package's identity — so you can depend on an
-**unpublished** sibling. Such a dependency resolves only while developed; publish it
-before releasing this project.
+`cosm.json` only. Resolution is **offline when the local clone already has the
+package/version** (fast, deterministic); only on a miss does it **lazily pull the
+relevant registry once and retry**, so a version published since your last `cosm
+update` still resolves. If `<name>` isn't in any registry but has been adopted into
+the dev workspace (`cosm develop <name> --path <dir>`), it falls back to that local
+checkout for the package's identity — so you can depend on an **unpublished** sibling
+(resolves only while developed; publish before releasing this project).
 - `--registry <name>` — restrict to one registry (skips the prompt when that leaves
   a single candidate). For scripts/CI.
 - `--major <n>` — restrict to one major line (e.g. `--major 0`). For scripts/CI.
+- `--offline` — never pull on a miss; error with the versions the local clone has.
+  Also enabled by setting `COSM_OFFLINE` (for CI / reproducible resolution).
 - `--test` — add as a **test-only** dependency (written to `testDeps`). Test deps
   are available when building/testing this package but are **not inherited
   transitively** — a package that depends on yours never sees them. A compatibility

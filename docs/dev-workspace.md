@@ -58,6 +58,10 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
   - For a **test-only** dependency, use `cosm add <name> --test` (recorded in
     `testDeps`). It's available to `cosm test` but is not inherited by packages that
     depend on this one.
+  - `cosm add` is offline when the version is already in the local registry clone; on
+    a miss it does a read-only pull of the registry and retries (a self-heal for a
+    stale clone — it never mutates a registry). Pass `--offline` (or set
+    `COSM_OFFLINE`) for strictly no-network, reproducible resolution.
 - **Get the environment** for other tools: `eval "$(cosm env)"`
 - **Local git**: `git add` / `git commit` on a working branch are fine;
   `git push` / `git tag` require explicit confirmation (see the rule above).

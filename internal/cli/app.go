@@ -326,6 +326,8 @@ func addCmd() *cobra.Command {
 			opts.Registry, _ = cmd.Flags().GetString("registry")
 			opts.Major, _ = cmd.Flags().GetInt("major")
 			opts.Test, _ = cmd.Flags().GetBool("test")
+			offline, _ := cmd.Flags().GetBool("offline")
+			opts.Offline = offline || os.Getenv("COSM_OFFLINE") != ""
 			cwd, _ := os.Getwd()
 			ver, reg, err := s.Add(cwd, name, version, opts, chooseRegistry)
 			if err != nil {
@@ -347,6 +349,7 @@ func addCmd() *cobra.Command {
 	cmd.Flags().String("registry", "", "select a registry when the name is ambiguous (non-interactive)")
 	cmd.Flags().Int("major", -1, "select a major version line when the name is ambiguous (non-interactive)")
 	cmd.Flags().Bool("test", false, "add as a test-only dependency (non-transitive)")
+	cmd.Flags().Bool("offline", false, "don't pull registries on a local miss (also via COSM_OFFLINE)")
 	return cmd
 }
 

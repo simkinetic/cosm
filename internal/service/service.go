@@ -69,6 +69,7 @@ type AddOpts struct {
 	Registry string // "" = any registry
 	Major    int    // -1 = any major
 	Test     bool   // add to testDeps (test-only, non-transitive) instead of deps
+	Offline  bool   // don't pull registries on a local miss
 }
 
 // Add adds a dependency to the project's cosm.json (§12.2). When more than one
@@ -80,22 +81,13 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 	if err != nil {
 		return "", "", err
 	}
-	locs, err := s.Loader.Find(name, version)
+	locs, err := s.findFiltered(name, version, opts)
 	if err != nil {
 		return "", "", err
 	}
-	if opts.Registry != "" {
-		locs = filterLocs(locs, func(l registry.Location) bool { return l.Registry == opts.Registry })
-	}
-	if opts.Major >= 0 {
-		locs = filterLocs(locs, func(l registry.Location) bool {
-			mj, e := semver.Major(l.Specs.Version)
-			return e == nil && mj == opts.Major
-		})
-	}
 	if len(locs) == 0 {
-		// Fallback: an unpublished package adopted into the dev workspace
-		// (`cosm develop <name> --path <dir>`). Source its identity locally.
+		// An unpublished package adopted into the dev workspace
+		// (`cosm develop <name> --path <dir>`). Source its identity locally (no net).
 		if opts.Registry == "" {
 			if v, ok, ferr := s.addFromWorkspace(m, projectDir, name, version, opts); ferr != nil {
 				return "", "", ferr
@@ -103,12 +95,27 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 				return v, "(develop)", nil
 			}
 		}
+		// Lazy sync: the wanted package/version may have been published since the last
+		// pull. Sync the relevant registries once (best-effort) and re-check, unless
+		// the caller asked to stay offline. `add` is otherwise offline.
+		if !opts.Offline {
+			s.syncForAdd(name, opts.Registry)
+			if locs, err = s.findFiltered(name, version, opts); err != nil {
+				return "", "", err
+			}
+		}
+	}
+	if len(locs) == 0 {
 		// A known package with an unfindable explicit version: say what's actually
 		// available so a stale clone or a typo is obvious (vs a truly unknown name).
 		if version != "" {
 			if _, reg, vers, verr := s.Loader.Versions(name); verr == nil && len(vers) > 0 {
-				return "", "", fmt.Errorf("%w: %s has no version %s in registry '%s' (available: %s; run 'cosm update' if it was published recently)",
-					errs.ErrPackageNotFound, name, version, reg, strings.Join(vers, ", "))
+				hint := ""
+				if opts.Offline {
+					hint = "; run 'cosm update' or drop --offline"
+				}
+				return "", "", fmt.Errorf("%w: %s has no version %s in registry '%s' (available: %s%s)",
+					errs.ErrPackageNotFound, name, version, reg, strings.Join(vers, ", "), hint)
 			}
 		}
 		return "", "", fmt.Errorf("%w: %s%s (try 'cosm update', or 'cosm develop %s --path <dir>' for a local package)",
@@ -127,6 +134,43 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 		return "", "", err
 	}
 	return loc.Specs.Version, loc.Registry, nil
+}
+
+// findFiltered locates a package in the registries and applies the registry/major
+// filters from opts.
+func (s *Service) findFiltered(name, version string, opts AddOpts) ([]registry.Location, error) {
+	locs, err := s.Loader.Find(name, version)
+	if err != nil {
+		return nil, err
+	}
+	if opts.Registry != "" {
+		locs = filterLocs(locs, func(l registry.Location) bool { return l.Registry == opts.Registry })
+	}
+	if opts.Major >= 0 {
+		locs = filterLocs(locs, func(l registry.Location) bool {
+			mj, e := semver.Major(l.Specs.Version)
+			return e == nil && mj == opts.Major
+		})
+	}
+	return locs, nil
+}
+
+// syncForAdd best-effort pulls the registries relevant to name so a version
+// published since the last update becomes visible. Errors are ignored — the caller
+// re-checks locally and reports an actionable not-found if the package is still
+// absent. It pulls narrowly: the named registry if pinned, else the one that already
+// has the package, else every registry (to discover a wholly new one).
+func (s *Service) syncForAdd(name, regFilter string) {
+	switch {
+	case regFilter != "":
+		_ = s.Reg.UpdateRegistry(regFilter)
+	default:
+		if _, reg, vers, err := s.Loader.Versions(name); err == nil && reg != "" && len(vers) > 0 {
+			_ = s.Reg.UpdateRegistry(reg)
+		} else {
+			s.Reg.UpdateAll()
+		}
+	}
 }
 
 // addFromWorkspace declares a dependency on an unpublished package adopted into the
