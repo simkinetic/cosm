@@ -50,13 +50,14 @@ jobs:
         run: |
           v="${GITHUB_REF_NAME}"
           suffix="${GOOS}-${GOARCH}"
-          go build -ldflags "-X main.version=${v}" -o "cosm-${suffix}" .
-          go build -o "cosm-ext-lua-${suffix}" ./cmd/cosm-ext-lua
-          go build -o "cosm-ext-cmake-${suffix}" ./cmd/cosm-ext-cmake
+          mkdir -p out
+          go build -ldflags "-X main.version=${v}" -o "out/cosm-${suffix}" .
+          go build -o "out/cosm-ext-lua-${suffix}" ./cmd/cosm-ext-lua
+          go build -o "out/cosm-ext-cmake-${suffix}" ./cmd/cosm-ext-cmake
       - uses: actions/upload-artifact@v4
         with:
           name: cosm-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: cosm-*-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: out/*
           if-no-files-found: error
 
   release:
