@@ -40,9 +40,15 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
 - **Build** the current package and its dependencies: `cosm build`
 - **Run** a command in the built environment: `cosm run -- <cmd>`
   (e.g. `cosm run -- lua src/main.lua`, or `cosm run -- ./build/app`)
-- **Test**: `cosm test`
+- **Test**: `cosm test` — builds with test-only deps and runs the suite. It is a
+  trustworthy gate: it **fails** on a failing test AND on a zero-test run (so a
+  mis-configured suite can't pass vacuously). `--verbose` prints full output; `-- <args>`
+  forwards to the runner (e.g. `ctest`); `--keep-build` + `--cxxflags`/`--ldflags` let a
+  coverage tool ride the run.
 - **Inspect** resolution: `cosm status` (shows the resolved build list; `(develop)`
-  marks packages taken live from this workspace)
+  marks packages taken live from this workspace). `build`/`test`/`run`/`env`/`status`
+  all report the same develop advisories, so they never disagree on what you build
+  against.
 - **Scaffold a new package**: `cosm init <name> --build <ext>` writes `cosm.json`
   (with `provides` already set) and the language-specific source layout for you —
   no hand-editing of `provides` or `src/<ns>/` needed.
