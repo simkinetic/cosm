@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"cosm/internal/depot"
 	"cosm/internal/manifest"
 	"cosm/internal/types"
@@ -49,5 +51,24 @@ func TestCompletionHelpers(t *testing.T) {
 	regs, _ := completeRegistries(nil, nil, "")
 	if strings.Join(regs, ",") != "cosmcpp,cosmlua" {
 		t.Errorf("registry completions = %v, want [cosmcpp cosmlua]", regs)
+	}
+}
+
+// TestCompletionNoFileFallback: commands with no completable positional args must
+// suppress the shell's default file completion (so `cosm status <TAB>` doesn't list
+// the directory).
+func TestCompletionNoFileFallback(t *testing.T) {
+	root := buildRoot()
+	for _, name := range []string{"status", "build", "env", "test", "setup"} {
+		c, _, err := root.Find([]string{name})
+		if err != nil || c == nil {
+			t.Fatalf("command %q not found", name)
+		}
+		if c.ValidArgsFunction == nil {
+			t.Fatalf("%q has no completion function (would file-complete)", name)
+		}
+		if _, dir := c.ValidArgsFunction(c, nil, ""); dir != cobra.ShellCompDirectiveNoFileComp {
+			t.Errorf("%q completion directive = %v, want NoFileComp", name, dir)
+		}
 	}
 }

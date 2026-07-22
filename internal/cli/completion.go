@@ -18,6 +18,15 @@ func wireCompletions(root *cobra.Command) {
 	for _, c := range root.Commands() {
 		sub[c.Name()] = c
 	}
+	// Commands whose positional args are names/versions/none — never files. Without
+	// this, cobra returns ShellCompDirectiveDefault and the shell falls back to file
+	// completion (so `cosm status <TAB>` would list the directory). Flag-value
+	// completion (e.g. --path) is unaffected.
+	for _, n := range []string{"setup", "init", "status", "add", "build", "env", "shell", "test", "release", "publish"} {
+		if c := sub[n]; c != nil && c.ValidArgsFunction == nil {
+			c.ValidArgsFunction = completeNoFile
+		}
+	}
 	// Commands whose first arg is a dependency name.
 	for _, n := range []string{"rm", "upgrade", "downgrade", "develop", "free"} {
 		if c := sub[n]; c != nil {
@@ -34,7 +43,7 @@ func wireCompletions(root *cobra.Command) {
 	if c := sub["update"]; c != nil {
 		c.ValidArgsFunction = completeRegistriesFirst
 	}
-	// Registry subcommands whose first arg is a registry name.
+	// Registry subcommands.
 	if reg := sub["registry"]; reg != nil {
 		rsub := map[string]*cobra.Command{}
 		for _, c := range reg.Commands() {
@@ -45,7 +54,18 @@ func wireCompletions(root *cobra.Command) {
 				c.ValidArgsFunction = completeRegistriesFirst
 			}
 		}
+		for _, n := range []string{"init", "clone"} {
+			if c := rsub[n]; c != nil && c.ValidArgsFunction == nil {
+				c.ValidArgsFunction = completeNoFile
+			}
+		}
 	}
+}
+
+// completeNoFile suppresses the shell's default file completion for a command that
+// takes no completable positional args.
+func completeNoFile(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return nil, cobra.ShellCompDirectiveNoFileComp
 }
 
 // completeDeps suggests the current project's direct dependency names.
