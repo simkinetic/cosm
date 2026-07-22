@@ -163,8 +163,12 @@ func envCmd() *cobra.Command {
 
 func testCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "test",
+		Use:   "test [-- <runner args>]",
 		Short: "Build, then run the project's tests via its extension",
+		Long: "Build the project (including test-only dependencies) and run its tests via\n" +
+			"the build extension. Fails on a failing test AND on a run that discovers zero\n" +
+			"tests (a vacuous-pass guardrail). Arguments after -- are forwarded to the\n" +
+			"underlying runner (e.g. ctest): cosm test -- -R mytag --output-on-failure.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := newService()
 			if err != nil {
@@ -182,6 +186,7 @@ func testCmd() *cobra.Command {
 			}
 			jobs, _ := cmd.Flags().GetInt("jobs")
 			verbose, _ := cmd.Flags().GetBool("verbose")
+			keepBuild, _ := cmd.Flags().GetBool("keep-build")
 			cxxFlags, _ := cmd.Flags().GetString("cxxflags")
 			ldFlags, _ := cmd.Flags().GetString("ldflags")
 			m := materializer(s, buildTypeFromFlags(cmd), jobs)
@@ -201,12 +206,13 @@ func testCmd() *cobra.Command {
 				Project:  ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: cwd, Provides: root.Provides},
 				Platform: m.Opt.Platform,
 				Deps:     deps,
-				Config:   m.Opt.ConfigJSON(),
-				Jobs:     m.Opt.Jobs,
-				Verbose:  verbose,
-				CxxFlags: cxxFlags,
-				LdFlags:  ldFlags,
-				Args:     args,
+				Config:    m.Opt.ConfigJSON(),
+				Jobs:      m.Opt.Jobs,
+				Verbose:   verbose,
+				KeepBuild: keepBuild,
+				CxxFlags:  cxxFlags,
+				LdFlags:   ldFlags,
+				Args:      args,
 			})
 			if err != nil {
 				return err
@@ -216,6 +222,9 @@ func testCmd() *cobra.Command {
 				if data, rerr := os.ReadFile(resp.Log); rerr == nil {
 					fmt.Print(string(data))
 				}
+			}
+			if keepBuild && resp.BuildDir != "" {
+				fmt.Printf("Build tree kept at %s\n", resp.BuildDir)
 			}
 			if resp.Status != "ok" {
 				return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log}
@@ -236,6 +245,7 @@ func testCmd() *cobra.Command {
 	}
 	buildFlags(cmd)
 	cmd.Flags().Bool("verbose", false, "print full test output (not just on failure)")
+	cmd.Flags().Bool("keep-build", false, "keep the test build tree and print its path (for coverage tools)")
 	cmd.Flags().String("cxxflags", "", "extra compile flags for this test run (e.g. coverage instrumentation)")
 	cmd.Flags().String("ldflags", "", "extra link flags for this test run")
 	return cmd

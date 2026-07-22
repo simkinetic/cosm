@@ -69,6 +69,7 @@ func buildRoot() *cobra.Command {
 		developCmd(), freeCmd(), upgradeCmd(), downgradeCmd(),
 		publishCmd(),
 	)
+	wireCompletions(root)
 	return root
 }
 

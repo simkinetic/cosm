@@ -100,13 +100,14 @@ type ScaffoldResponse struct {
 type TestRequest struct {
 	Project  PackageCtx      `json:"project"`
 	Platform types.Platform  `json:"platform"`
-	Deps     []DepCtx        `json:"deps"`
-	Config   json.RawMessage `json:"config,omitempty"` // same shape as BuildRequest.Config
-	Jobs     int             `json:"jobs,omitempty"`
-	Verbose  bool            `json:"verbose,omitempty"`
-	CxxFlags string          `json:"cxxFlags,omitempty"` // extra compile flags for this run (e.g. coverage)
-	LdFlags  string          `json:"ldFlags,omitempty"`  // extra link flags for this run
-	Args     []string        `json:"args,omitempty"`     // forwarded to the underlying runner (e.g. ctest)
+	Deps      []DepCtx        `json:"deps"`
+	Config    json.RawMessage `json:"config,omitempty"` // same shape as BuildRequest.Config
+	Jobs      int             `json:"jobs,omitempty"`
+	Verbose   bool            `json:"verbose,omitempty"`
+	KeepBuild bool            `json:"keepBuild,omitempty"` // retain the test build tree (for coverage tooling)
+	CxxFlags  string          `json:"cxxFlags,omitempty"`  // extra compile flags for this run (e.g. coverage)
+	LdFlags   string          `json:"ldFlags,omitempty"`   // extra link flags for this run
+	Args      []string        `json:"args,omitempty"`      // forwarded to the underlying runner (e.g. ctest)
 }
 
 // TestResponse is the `test` verb output. Status is "ok" or "failed"; the extension
@@ -114,7 +115,8 @@ type TestRequest struct {
 // uniformly. Tests is the number of tests run (-1 if the runner can't report it);
 // the core treats 0 as a failure (a vacuous pass guardrail).
 type TestResponse struct {
-	Status string `json:"status"`
-	Log    string `json:"log,omitempty"`   // path to captured configure/build/test output
-	Tests  int    `json:"tests,omitempty"` // number of tests run; -1 = unknown
+	Status   string `json:"status"`
+	Log      string `json:"log,omitempty"`      // path to captured configure/build/test output
+	Tests    int    `json:"tests,omitempty"`    // number of tests run; -1 = unknown
+	BuildDir string `json:"buildDir,omitempty"` // retained test build tree when KeepBuild was set
 }

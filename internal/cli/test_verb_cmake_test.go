@@ -123,6 +123,23 @@ endif()
 		t.Fatalf("env --expand left an unexpanded ${VAR}: %q", out)
 	}
 
+	// Wishlist: --keep-build retains the test build tree and prints its path (so
+	// coverage tools can find the test binary after the run).
+	out := ok(runCLI(t, app, "test", "--keep-build"))
+	kept := ""
+	for _, ln := range strings.Split(out, "\n") {
+		if s := strings.TrimPrefix(ln, "Build tree kept at "); s != ln {
+			kept = strings.TrimSpace(s)
+		}
+	}
+	if kept == "" {
+		t.Fatalf("--keep-build did not report a build tree: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(kept, "CMakeCache.txt")); err != nil {
+		t.Fatalf("kept build tree missing CMakeCache.txt: %v", err)
+	}
+	os.RemoveAll(kept)
+
 	// A deliberately failing test must fail `cosm test` — reported as a TEST failure
 	// (not "build failed …"), with the test exit code (6).
 	writeCanary(43)

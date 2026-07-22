@@ -141,6 +141,9 @@ target gated on `find_package(<testdep>)` is actually built — a plain
 of tests; `cosm test` **fails** on a failing test **and on a run that discovers zero
 tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
 - `--verbose` — print the full test output even when it passes.
+- `--keep-build` — keep the (otherwise ephemeral) test build tree and print its path,
+  so coverage tooling can read the test binary/profiles after the run (pair with
+  `--cxxflags`/`--ldflags`). The tree is still reconfigured clean each run.
 - `--cxxflags "<flags>"` / `--ldflags "<flags>"` — extra compile / link flags for
   this run only (e.g. `--cxxflags "-fprofile-instr-generate -fcoverage-mapping"
   --ldflags "-fprofile-instr-generate"` to ride an llvm-cov coverage gate on
@@ -220,6 +223,22 @@ the local platform, upload the artifact to the store, and record a binary in a
 - `--registry <r>` — target binary/mixed registry (required).
 - `--store <dir>` — artifact store directory (or from config).
 - `--debug` — debug build.
+
+### Shell completion
+
+**`cosm completion <bash|zsh|fish|powershell>`** — print the completion script for a
+shell; source it or install it where the shell looks. Examples:
+
+```sh
+# bash (current shell)
+source <(cosm completion bash)
+# zsh (persist)
+cosm completion zsh > "${fpath[1]}/_cosm"
+```
+
+Beyond commands and flags, completion is **value-aware**: dependency names for
+`rm`/`upgrade`/`downgrade`/`develop`/`free`, and registry names for the `registry`
+subcommands, `cosm update`, and `--registry`.
 
 ---
 

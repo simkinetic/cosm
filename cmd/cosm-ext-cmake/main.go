@@ -244,11 +244,17 @@ func doTest() {
 	}
 	defer logf.Close()
 	buildDir := filepath.Join(os.TempDir(), "cosm-cmake-test-"+tag)
-	os.RemoveAll(buildDir)
-	defer os.RemoveAll(buildDir)
+	os.RemoveAll(buildDir) // always start clean (avoids stale-cache pinning)
+	if !req.KeepBuild {
+		defer os.RemoveAll(buildDir)
+	}
+	kept := ""
+	if req.KeepBuild {
+		kept = buildDir
+	}
 
 	fail := func() {
-		must(extlib.WriteResponse(ext.TestResponse{Status: "failed", Log: logPath, Tests: -1}))
+		must(extlib.WriteResponse(ext.TestResponse{Status: "failed", Log: logPath, Tests: -1, BuildDir: kept}))
 	}
 
 	configure := []string{
@@ -293,7 +299,7 @@ func doTest() {
 	if terr != nil {
 		status = "failed"
 	}
-	must(extlib.WriteResponse(ext.TestResponse{Status: status, Log: logPath, Tests: tests}))
+	must(extlib.WriteResponse(ext.TestResponse{Status: status, Log: logPath, Tests: tests, BuildDir: kept}))
 }
 
 // runCapture runs name+args in dir (cwd if ""), tee-ing combined output to logf and

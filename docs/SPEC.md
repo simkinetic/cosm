@@ -837,7 +837,8 @@ a spawned subshell is one option, not the only one.
   failing test and on a **zero-test run** (vacuous-pass guardrail), surfacing the
   captured output on failure (always with `--verbose`). Args after `--` forward to the
   runner (e.g. `ctest`); `--cxxflags`/`--ldflags` add per-run compile/link flags (e.g.
-  coverage instrumentation), applied to the test configure.
+  coverage instrumentation), applied to the test configure; `--keep-build` retains the
+  test build tree and prints its path (so coverage tooling can read the test binary).
 - `cosm run [--] <cmd> [args…]` — **primary execution primitive.** Build if needed,
   then exec `<cmd>` once with the assembled environment. Ephemeral, reproducible,
   works in any shell / CI / editor. E.g. `cosm run -- lua src/main.lua`,
