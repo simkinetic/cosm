@@ -5,11 +5,67 @@ import (
 	"path/filepath"
 	"testing"
 
+	"cosm/internal/develop"
 	"cosm/internal/gitx"
 	"cosm/internal/manifest"
+	"cosm/internal/resolve"
 	"cosm/internal/semver"
 	"cosm/internal/types"
 )
+
+func hasWarn(warns []resolve.Warning, code string) bool {
+	for _, w := range warns {
+		if w.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+// TestDevelopAdvisories: build/test/run/env/status all resolve through here, so the
+// two silent develop states are surfaced uniformly — a dependency sitting in the
+// workspace this project isn't developing, and an enrolled unit whose checkout is
+// gone (both silently using the registry version).
+func TestDevelopAdvisories(t *testing.T) {
+	d := seedDepot(t)
+	seedPkg(t, d, "R", "p", "u-p", mkSpec("p", "u-p", "v1.0.0"))
+	s := New(d, gitx.Exec{})
+	proj := t.TempDir()
+	writeProject(t, proj, map[string]types.Dependency{
+		semver.UnitKey("u-p", 1): {Name: "p", Version: "v1.0.0"},
+	})
+
+	// Baseline: no workspace, no enrollment -> no develop advisories.
+	if _, _, warns, err := s.Resolve(proj); err != nil {
+		t.Fatal(err)
+	} else if hasWarn(warns, "W_DEVELOP_AVAILABLE") || hasWarn(warns, "W_DEVELOP_MISSING") {
+		t.Fatalf("unexpected develop advisory: %v", warns)
+	}
+
+	// p is in the workspace but this project isn't enrolled -> AVAILABLE.
+	if err := manifest.SaveWorkspace(d.WorkspaceFile(), &types.Workspace{
+		SchemaVersion: 1,
+		Entries:       []types.WorkspaceEntry{{Name: "p", UUID: "u-p", Major: 1, Path: "dev/p@v1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, warns, _ := s.Resolve(proj); !hasWarn(warns, "W_DEVELOP_AVAILABLE") {
+		t.Fatalf("expected W_DEVELOP_AVAILABLE: %v", warns)
+	}
+
+	// Enrolled for p but no workspace entry (checkout missing) -> MISSING.
+	if err := manifest.SaveWorkspace(d.WorkspaceFile(), &types.Workspace{SchemaVersion: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.SaveEnrollment(develop.EnrollmentPath(proj), &types.Enrollment{
+		SchemaVersion: 1, Enrolled: []string{semver.UnitKey("u-p", 1)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, warns, _ := s.Resolve(proj); !hasWarn(warns, "W_DEVELOP_MISSING") {
+		t.Fatalf("expected W_DEVELOP_MISSING: %v", warns)
+	}
+}
 
 // TestDevelopFromPathBootstrap covers co-developing a brand-new, unpublished
 // sibling: adopt it by path, declare it via the add workspace-fallback, and

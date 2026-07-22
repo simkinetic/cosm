@@ -449,7 +449,14 @@ shared checkout: its live `cosm.json` and `deps` are used and it wins regardless
 version (like a `replace`). The override applies wherever that unit appears in the
 graph (root or transitive), so enrolling a whole stack (`cosm develop A B C`) makes
 those packages resolve to each other's dev trees. Build-list entries for overridden
-units are marked `develop:true`; `status` and `build` report active overrides.
+units are marked `develop:true`; `status`, `build`, `test`, `run`, and `env` all
+resolve through the same overlay and report the same advisories, so they never
+disagree on what a project builds against. Two silent states that fall back to the
+registry are surfaced as warnings (not just left implicit): a resolved dependency
+that has a shared checkout **this project isn't enrolled for** (`W_DEVELOP_AVAILABLE`
+— run `cosm develop <name>` to use it), and an **enrolled** unit whose checkout is
+missing (`W_DEVELOP_MISSING` — created on demand by `cosm develop`, but flagged so a
+stale enrollment isn't mistaken for an active override).
 
 ### 7.5 Downgrade (MVS downgrade algorithm)
 `cosm downgrade <name> v<x>` is **not** a single-floor edit. Because MVS never

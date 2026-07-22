@@ -119,10 +119,11 @@ func envCmd() *cobra.Command {
 				return err
 			}
 			cwd, _ := os.Getwd()
-			root, bl, _, err := s.Resolve(cwd)
+			root, bl, warns, err := s.Resolve(cwd)
 			if err != nil {
 				return err
 			}
+			printWarns(warns)
 			jobs, _ := cmd.Flags().GetInt("jobs")
 			m := materializer(s, buildTypeFromFlags(cmd), jobs)
 			built, rootBuilt, err := m.BuildProject(root, cwd, bl)
@@ -158,10 +159,11 @@ func testCmd() *cobra.Command {
 			}
 			cwd, _ := os.Getwd()
 			// Tests resolve with the project's test-only dependencies (§7.6).
-			root, bl, _, err := s.ResolveWithTests(cwd)
+			root, bl, warns, err := s.ResolveWithTests(cwd)
 			if err != nil {
 				return err
 			}
+			printWarns(warns)
 			if root.Build == "" {
 				return fmt.Errorf("%w: project has no build system", errs.ErrUsage)
 			}

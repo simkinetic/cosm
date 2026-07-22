@@ -5,6 +5,7 @@ package service
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"cosm/internal/depot"
@@ -46,7 +47,7 @@ func (s *Service) resolve(projectDir string, includeTests bool) (*types.Manifest
 	if err != nil {
 		return nil, types.BuildList{}, nil, err
 	}
-	ov, _, err := develop.Build(s.D, projectDir)
+	ov, missing, err := develop.Build(s.D, projectDir)
 	if err != nil {
 		return nil, types.BuildList{}, nil, err
 	}
@@ -57,7 +58,59 @@ func (s *Service) resolve(projectDir string, includeTests bool) (*types.Manifest
 	} else {
 		bl, warns, err = resolve.Resolve(m, s.Loader, ov)
 	}
+	if err == nil {
+		warns = append(warns, s.developAdvisories(projectDir, bl, missing)...)
+	}
 	return m, bl, warns, err
+}
+
+// developAdvisories surfaces the two easy-to-miss develop states, so build/test/
+// run/env/status report the same thing: a dependency sitting in the shared
+// workspace that this project isn't developing (silently using the registry
+// version), and a unit this project IS enrolled for whose checkout is missing (so
+// resolution fell back to the registry). Sorted for deterministic output.
+func (s *Service) developAdvisories(projectDir string, bl types.BuildList, missing []develop.Missing) []resolve.Warning {
+	ws, _ := manifest.LoadWorkspace(s.D.WorkspaceFile())
+	enr, _ := manifest.LoadEnrollment(develop.EnrollmentPath(projectDir))
+	enrolled := map[string]bool{}
+	for _, k := range enr.Enrolled {
+		enrolled[k] = true
+	}
+	inWS := map[string]types.WorkspaceEntry{}
+	for _, e := range ws.Entries {
+		inWS[semver.UnitKey(e.UUID, e.Major)] = e
+	}
+	var warns []resolve.Warning
+	for key, e := range bl.Dependencies {
+		if e.Develop {
+			continue
+		}
+		if _, ok := inWS[key]; ok && !enrolled[key] {
+			warns = append(warns, resolve.Warning{
+				Code: "W_DEVELOP_AVAILABLE",
+				Message: fmt.Sprintf("%s@v%d is in the dev workspace but this project uses registry %s "+
+					"(run 'cosm develop %s' to build against the live checkout)", e.Name, e.Major, e.Version, e.Name),
+			})
+		}
+	}
+	for _, mi := range missing {
+		name := mi.Entry.Name
+		if name == "" {
+			if e, ok := bl.Dependencies[mi.Key]; ok {
+				name = e.Name
+			}
+		}
+		if name == "" {
+			name = mi.Key
+		}
+		warns = append(warns, resolve.Warning{
+			Code: "W_DEVELOP_MISSING",
+			Message: fmt.Sprintf("%s is enrolled for development but its checkout is missing; using the registry version "+
+				"(run 'cosm develop %s' to restore it)", name, name),
+		})
+	}
+	sort.Slice(warns, func(i, j int) bool { return warns[i].Message < warns[j].Message })
+	return warns
 }
 
 // RegistryChooser is called when a package is found in multiple registries.

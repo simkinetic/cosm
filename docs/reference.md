@@ -71,7 +71,11 @@ overwritten).
 
 **`cosm status`** — resolve (offline) and print the project, its direct
 dependencies, and the resolved build list, with `(develop)` markers and any
-v0-minor-bump warnings.
+v0-minor-bump warnings. It also surfaces the two easy-to-miss develop states (see
+`cosm develop`): a dependency sitting in the shared workspace that this project
+isn't developing, and a unit this project is enrolled for whose checkout is missing
+— both silently using the registry version. `build`, `test`, `run`, and `env` report
+the same advisories (to stderr), so all five agree on what you're building against.
 
 **`cosm add <name> [v<version>]`** — add a dependency. Looks the package up in the
 local registries (prompting if it is found in more than one registry, or spans
