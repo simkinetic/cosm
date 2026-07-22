@@ -144,6 +144,7 @@ func setupCmd() *cobra.Command {
 			}
 			fmt.Printf("Depot ready at %s\n", d.Root)
 			fmt.Printf("To pin it for this shell: export COSM_DEPOT=%q\n", d.Root)
+			fmt.Printf("Enable tab completion: %s\n", completionHint())
 			// Drop the agent guide into the develop workspace, unless one is already
 			// there (never clobber a user's edits).
 			if DevWorkspaceGuide != "" {

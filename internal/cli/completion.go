@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -59,6 +60,21 @@ func wireCompletions(root *cobra.Command) {
 				c.ValidArgsFunction = completeNoFile
 			}
 		}
+	}
+}
+
+// completionHint returns a one-line, shell-aware instruction for enabling tab
+// completion — printed by `cosm setup` since the shell script isn't auto-installed.
+func completionHint() string {
+	switch filepath.Base(os.Getenv("SHELL")) {
+	case "zsh":
+		return "add to ~/.zshrc:  source <(cosm completion zsh)"
+	case "bash":
+		return "add to ~/.bashrc: source <(cosm completion bash)"
+	case "fish":
+		return "cosm completion fish > ~/.config/fish/completions/cosm.fish"
+	default:
+		return "see 'cosm completion --help'"
 	}
 }
 

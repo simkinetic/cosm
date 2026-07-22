@@ -54,6 +54,16 @@ func TestCompletionHelpers(t *testing.T) {
 	}
 }
 
+func TestCompletionHint(t *testing.T) {
+	cases := map[string]string{"/bin/zsh": "zsh", "/usr/bin/bash": "bash", "/usr/bin/fish": "fish", "": "cosm completion --help"}
+	for shell, want := range cases {
+		t.Setenv("SHELL", shell)
+		if got := completionHint(); !strings.Contains(got, want) {
+			t.Errorf("SHELL=%q hint = %q, want it to mention %q", shell, got, want)
+		}
+	}
+}
+
 // TestCompletionNoFileFallback: commands with no completable positional args must
 // suppress the shell's default file completion (so `cosm status <TAB>` doesn't list
 // the directory).
