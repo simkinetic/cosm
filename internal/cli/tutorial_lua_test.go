@@ -42,6 +42,13 @@ func TestTutorial_Lua(t *testing.T) {
 	writeFile(filepath.Join(lib, "src", "strutil@v0", "strutil.lua"),
 		"local strutil = {}\nfunction strutil.greet(name)\n  return \"Hello, \" .. name .. \"!\"\nend\nreturn strutil\n")
 
+	// 3b. test the library
+	writeFile(filepath.Join(lib, "test", "test.lua"),
+		"local strutil = require(\"strutil@v0.strutil\")\nassert(strutil.greet(\"cosm\") == \"Hello, cosm!\", \"greet\")\nprint(\"strutil ok\")\n")
+	if out := ok(runCLI(t, lib, "test")); !strings.Contains(out, "Tests ok") {
+		t.Fatalf("cosm test: %q", out)
+	}
+
 	// 4. release
 	strutilRemote := bare(t, home, "strutil.git")
 	gitRun(t, lib, "init")

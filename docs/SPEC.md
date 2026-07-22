@@ -827,8 +827,9 @@ git-like; cobra or equivalent. Global flags on every command:
 The environment (§8.4) is computed once and offered through several delivery modes;
 a spawned subshell is one option, not the only one.
 
-- `cosm build [--release|--debug] [--jobs N] [--offline]` — resolve → materialize →
-  topological build via extensions. Reuses the artifact cache.
+- `cosm build [--release|--debug] [--jobs N]` — resolve → materialize → topological
+  build via extensions. Reuses the artifact cache. Offline: it resolves against the
+  local registry clones and never pulls (only `cosm add` lazy-syncs on a miss, §12.2).
 - `cosm test [--verbose] [-- <runner args>]` — build the test closure (regular deps
   **and** `testDeps`, §7.6), then invoke the extension's `test` verb (§9.3) with each
   dep's install **prefix**, so tests gated on a test-only dependency configure and

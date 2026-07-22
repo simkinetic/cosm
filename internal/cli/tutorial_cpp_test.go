@@ -15,6 +15,9 @@ func TestTutorial_Cpp(t *testing.T) {
 	if _, err := exec.LookPath("cmake"); err != nil {
 		t.Skip("cmake not installed")
 	}
+	if _, err := exec.LookPath("ctest"); err != nil {
+		t.Skip("ctest not installed")
+	}
 	if !hasCxxCompiler() {
 		t.Skip("no C++ compiler")
 	}
@@ -58,7 +61,20 @@ target_include_directories(greet_v0 PUBLIC
 install(TARGETS greet_v0 EXPORT greet_v0Targets ARCHIVE DESTINATION lib)
 install(DIRECTORY include/ DESTINATION include)
 install(EXPORT greet_v0Targets FILE greet_v0Config.cmake NAMESPACE greet_v0:: DESTINATION lib/cmake/greet_v0)
+if(BUILD_TESTING)
+  enable_testing()
+  add_executable(test_greet test/test_greet.cpp)
+  target_link_libraries(test_greet PRIVATE greet_v0)
+  add_test(NAME greet_hello COMMAND test_greet)
+endif()
 `)
+	writeFile(filepath.Join(lib, "test", "test_greet.cpp"),
+		"#include \"greet_v0/greet.hpp\"\nint main() { return greet_v0::hello(\"cosm\") == \"Hello, cosm!\" ? 0 : 1; }\n")
+
+	// Test the library (gated on BUILD_TESTING; cosm test enables it).
+	if out := ok(runCLI(t, lib, "test")); !strings.Contains(out, "Tests ok") {
+		t.Fatalf("cosm test greet: %q", out)
+	}
 
 	greetRemote := bare(t, home, "greet.git")
 	gitRun(t, lib, "init")

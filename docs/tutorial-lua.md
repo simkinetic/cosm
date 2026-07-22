@@ -90,6 +90,27 @@ return strutil
 LUA
 ```
 
+### Test it
+
+`cosm init` created a `test/` stub — fill it in. `cosm test` runs each `test/*.lua`
+with the dependency environment assembled (`LUA_PATH`), and **fails** if a test errors
+(or if no tests are found):
+
+```sh
+cat > test/test.lua <<'LUA'
+local strutil = require("strutil@v0.strutil")
+assert(strutil.greet("cosm") == "Hello, cosm!", "greet")
+print("strutil ok")
+LUA
+
+cosm test
+# => Tests ok
+```
+
+A test-only dependency (a test framework, say) is added with `cosm add <name> --test`:
+it's available to `cosm test` but is **not** inherited by projects that depend on
+`strutil`.
+
 ## 4. Publish a release
 
 Commit, push to the remote, and cut a release. `cosm release` tags the version
@@ -188,7 +209,7 @@ cd greeter
 cosm upgrade strutil                 # raises the floor to v0.1.1
 ```
 
-That's the whole loop: **init → release → register → add → build → run →
+That's the whole loop: **init → test → release → register → add → build → run →
 develop → upgrade**.
 
 ## Next steps

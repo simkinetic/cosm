@@ -109,12 +109,52 @@ install(EXPORT greet_v0Targets
   FILE greet_v0Config.cmake
   NAMESPACE greet_v0::
   DESTINATION lib/cmake/greet_v0)
+
+# Tests: gated on BUILD_TESTING so a plain `cosm build` skips them; `cosm test`
+# configures with -DBUILD_TESTING=ON.
+if(BUILD_TESTING)
+  enable_testing()
+  add_executable(test_greet test/test_greet.cpp)
+  target_link_libraries(test_greet PRIVATE greet_v0)
+  add_test(NAME greet_hello COMMAND test_greet)
+endif()
 CMAKE
 ```
 
 The CMake extension builds the package with `CMAKE_INSTALL_PREFIX` set to a
 content-addressed location in the depot, and reports that prefix so dependents'
 `find_package` can locate it.
+
+### Test it
+
+Write a test and run it with `cosm test`. cosm builds the project, configures with
+`-DBUILD_TESTING=ON`, and runs `ctest` — **failing** if a test fails or if *no* tests
+are discovered (so a mis-gated test can't pass vacuously):
+
+```sh
+cat > test/test_greet.cpp <<'CPP'
+#include "greet_v0/greet.hpp"
+// Return non-zero on failure (works in Release, where assert() is a no-op).
+int main() { return greet_v0::hello("cosm") == "Hello, cosm!" ? 0 : 1; }
+CPP
+
+cosm test
+# => Tests ok (1 run)
+```
+
+`cosm test -- <args>` forwards to `ctest` (e.g. `cosm test -- -R greet_hello
+--output-on-failure`), `--verbose` prints the full output, and `--cxxflags`/`--ldflags`
+inject per-run flags (e.g. coverage instrumentation).
+
+For a real test framework, add it as a **test-only** dependency:
+
+```sh
+cosm add catch2 --test        # once catch2 is in a registry
+```
+
+A `--test` dependency is on `CMAKE_PREFIX_PATH` for `cosm test` (so
+`find_package(Catch2 CONFIG)` resolves) but is **not** inherited by anyone who depends
+on `greet` — test frameworks don't leak to your consumers.
 
 ## 3. Release and register
 

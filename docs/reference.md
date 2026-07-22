@@ -144,7 +144,11 @@ tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
 - `--cxxflags "<flags>"` / `--ldflags "<flags>"` — extra compile / link flags for
   this run only (e.g. `--cxxflags "-fprofile-instr-generate -fcoverage-mapping"
   --ldflags "-fprofile-instr-generate"` to ride an llvm-cov coverage gate on
-  `cosm test`). For CMake these map to `CMAKE_CXX_FLAGS` / `CMAKE_*_LINKER_FLAGS`.
+  `cosm test`). For CMake these are passed as `-DCMAKE_CXX_FLAGS` /
+  `-DCMAKE_{EXE,SHARED}_LINKER_FLAGS`, which **override** (not append to) those
+  variables on the fresh test configure — fine for a one-off coverage run, but if you
+  need them layered on top of your normal flags, keep the flags in your `CMakeLists`
+  behind an `option()` instead.
 - `-- <args>` — everything after `--` is forwarded to the underlying runner (e.g.
   `cosm test -- -R mytag --output-on-failure` → `ctest`).
 

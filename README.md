@@ -34,10 +34,11 @@ Put all three on your `PATH` (or install extensions under
 
 - **[Reference](docs/reference.md)** — the complete API: every command and flag,
   the on-disk formats, the depot layout, and the extension protocol.
-- **[Lua tutorial](docs/tutorial-lua.md)** — publish a library, consume it, build,
-  run, and co-develop. *(Also an integration test, so it stays correct.)*
+- **[Lua tutorial](docs/tutorial-lua.md)** — publish a library, test it, consume it,
+  build, run, and co-develop. *(Also an integration test, so it stays correct.)*
 - **[C++ / CMake tutorial](docs/tutorial-cpp.md)** — a compiled library + app with
-  `find_package`, plus optional binary distribution. *(Also an integration test.)*
+  `find_package`, `cosm test` with test-only deps, plus optional binary distribution.
+  *(Also an integration test.)*
 - **[Registry CI](docs/registry-ci.md)** — keeping a registry up to date
   server-side with a scheduled `cosm registry sync`.
 - **[Develop-workspace agent guide](docs/dev-workspace.md)** — how to drive cosm
