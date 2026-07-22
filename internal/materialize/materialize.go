@@ -17,6 +17,7 @@ import (
 	"cosm/internal/errs"
 	"cosm/internal/ext"
 	"cosm/internal/gitx"
+	"cosm/internal/semver"
 	"cosm/internal/treehash"
 	"cosm/internal/types"
 )
@@ -301,19 +302,63 @@ func (m *Materializer) Activate(root *types.Manifest, projectDir string, bl type
 	if root.Build == "" {
 		return ext.ActivateResponse{}, fmt.Errorf("%w: project has no build system (set 'build' in cosm.json)", errs.ErrUsage)
 	}
+	ensureLocalGitignore(projectDir)
 	var deps []ext.DepCtx
 	for key, e := range bl.Dependencies {
 		b := built[key]
-		deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Prefix: b.Prefix, Descriptor: b.Descriptor})
+		deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version,
+			Prefix: stablePrefix(projectDir, e.Name, e.Major, b.Prefix), Descriptor: b.Descriptor})
 	}
 	if rootBuilt.Prefix != "" {
-		deps = append(deps, ext.DepCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Prefix: rootBuilt.Prefix, Descriptor: rootBuilt.Descriptor})
+		rmaj, _ := semver.Major(root.Version)
+		deps = append(deps, ext.DepCtx{Name: root.Name, UUID: root.UUID, Version: root.Version,
+			Prefix: stablePrefix(projectDir, root.Name, rmaj, rootBuilt.Prefix), Descriptor: rootBuilt.Descriptor})
 	}
 	return m.Run.Activate(root.Build, ext.ActivateRequest{
 		Project:  ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: projectDir, Provides: root.Provides},
 		Platform: m.Opt.Platform,
 		Deps:     deps,
 	})
+}
+
+// stablePrefix returns a project-local symlink (`.cosm/env/<name>@v<major>`) that
+// always points at the dependency's current content-addressed prefix, and re-points
+// it when that prefix changes (e.g. after a develop dep's content changes). Tools
+// that cache `cosm env` output (a CMake build tree, say) reference the stable path,
+// so they pick up the new prefix without a wipe. Falls back to the real prefix if a
+// symlink can't be made.
+func stablePrefix(projectDir, name string, major int, realPrefix string) string {
+	if realPrefix == "" || projectDir == "" {
+		return realPrefix
+	}
+	link := filepath.Join(projectDir, ".cosm", "env", fmt.Sprintf("%s@v%d", name, major))
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return realPrefix
+	}
+	if cur, err := os.Readlink(link); err == nil && cur == realPrefix {
+		return link
+	}
+	_ = os.Remove(link)
+	if err := os.Symlink(realPrefix, link); err != nil {
+		return realPrefix
+	}
+	return link
+}
+
+// ensureLocalGitignore keeps the project-local cosm state (env symlinks, develop
+// enrollment) out of version control by writing `.cosm/.gitignore` once.
+func ensureLocalGitignore(projectDir string) {
+	if projectDir == "" {
+		return
+	}
+	dir := filepath.Join(projectDir, ".cosm")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	p := filepath.Join(dir, ".gitignore")
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		_ = os.WriteFile(p, []byte("*\n"), 0o644)
+	}
 }
 
 // closureKeys returns the transitive dependency closure of the given direct dep

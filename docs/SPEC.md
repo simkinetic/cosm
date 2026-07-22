@@ -558,6 +558,15 @@ order onto the inherited environment. The core knows none of the variable names
 (`LUA_PATH`, `CMAKE_PREFIX_PATH`, `DYLD_LIBRARY_PATH`, …) — they come from the
 extension.
 
+**Stable prefixes.** The prefix passed to `activate` for each dependency (and the
+root) is a project-local symlink `<project>/.cosm/env/<name>@v<major>` that the core
+re-points at the current content-addressed prefix on every activate. The emitted
+environment therefore uses stable paths: a tool that caches this output (e.g. an
+external CMake build tree pinning `CMAKE_PREFIX_PATH`) keeps working after a
+dependency's content — and thus its build-key prefix — changes, with no cache wipe.
+The build **verb** still receives real prefixes (§8.2); only the activate-produced
+environment is indirected. `.cosm/` is git-ignored (`.cosm/.gitignore`).
+
 The assembled environment is exposed through several **delivery mechanisms**
 (§12.3) — one-shot `run`, printable `env`, an opt-in interactive `shell`, and
 optional direnv — rather than a single spawned subshell. It is recomputed only when

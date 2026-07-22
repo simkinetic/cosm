@@ -156,7 +156,11 @@ tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
   `cosm test -- -R mytag --output-on-failure` → `ctest`).
 
 **`cosm env`** — print the assembled environment as shell `export` lines; load it
-with `eval "$(cosm env)"`.
+with `eval "$(cosm env)"`. Paths point through **stable per-project symlinks**
+(`<project>/.cosm/env/<name>@v<major>`) that cosm re-points at each dependency's
+current content-addressed prefix on every activate — so a tool that caches this
+output (a CMake `build-test/` tree, say) keeps a valid `CMAKE_PREFIX_PATH` even after
+a develop dep's content, and therefore its prefix, changes, with no cache wipe.
 - `--expand` — print fully-resolved values (cosm's paths prepended to the inherited
   variable) instead of the `…:${VAR}` template, for tools that **parse** the output
   rather than `eval` it.
@@ -349,6 +353,11 @@ list is `<registry>/<SHARD>/<pkg>/versions.json`.
   major, giturl, ref, refKind, path}]`.
 - `<project>/.cosm/develop.json` — a project's enrollment: `{ "enrolled":
   ["<uuid>@v0", …] }`. Git-ignored; never committed.
+- `<project>/.cosm/env/<name>@v<major>` — a symlink to that dependency's current
+  install prefix, re-pointed on every `cosm env`/`build`/`run`. `cosm env` emits paths
+  through these so external tools survive a prefix change (see `cosm env`).
+- `<project>/.cosm/.gitignore` — written once (`*`), keeping all project-local cosm
+  state out of version control.
 
 ---
 

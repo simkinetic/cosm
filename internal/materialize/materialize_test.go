@@ -156,6 +156,52 @@ func TestActivateAndAssembleEnv(t *testing.T) {
 	}
 }
 
+// TestStablePrefix: `.cosm/env/<name>@v<major>` is a constant path that re-points
+// as the content-addressed prefix changes, so tools caching cosm env output survive
+// a dep's content changing.
+func TestStablePrefix(t *testing.T) {
+	proj := t.TempDir()
+	real1, real2 := t.TempDir(), t.TempDir()
+	want := filepath.Join(proj, ".cosm", "env", "foo@v0")
+
+	link := stablePrefix(proj, "foo", 0, real1)
+	if link != want {
+		t.Fatalf("stable path = %s, want %s", link, want)
+	}
+	if tgt, _ := os.Readlink(link); tgt != real1 {
+		t.Fatalf("target = %s, want %s", tgt, real1)
+	}
+	// Re-pointing keeps the same stable path but the new target.
+	if link2 := stablePrefix(proj, "foo", 0, real2); link2 != want {
+		t.Fatalf("stable path changed on re-point: %s", link2)
+	}
+	if tgt, _ := os.Readlink(link); tgt != real2 {
+		t.Fatalf("not re-pointed: %s", tgt)
+	}
+	// An empty prefix is returned as-is (no symlink).
+	if got := stablePrefix(proj, "foo", 0, ""); got != "" {
+		t.Errorf("empty prefix = %q", got)
+	}
+}
+
+func TestEnsureLocalGitignore(t *testing.T) {
+	proj := t.TempDir()
+	ensureLocalGitignore(proj)
+	data, err := os.ReadFile(filepath.Join(proj, ".cosm", ".gitignore"))
+	if err != nil || string(data) != "*\n" {
+		t.Fatalf(".cosm/.gitignore = %q, %v", data, err)
+	}
+	// A user's existing file is not overwritten.
+	custom := filepath.Join(proj, ".cosm", ".gitignore")
+	if err := os.WriteFile(custom, []byte("keep-me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ensureLocalGitignore(proj)
+	if data, _ := os.ReadFile(custom); string(data) != "keep-me\n" {
+		t.Fatalf("overwrote existing .gitignore: %q", data)
+	}
+}
+
 // TestClosureKeys: the closure of direct deps spans the whole transitive graph,
 // deepest-first, de-duplicated across diamonds.
 func TestClosureKeys(t *testing.T) {
