@@ -134,17 +134,29 @@ func envCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			expand, _ := cmd.Flags().GetBool("expand")
 			sep := string(os.PathListSeparator)
 			for k, v := range resp.Env {
 				fmt.Printf("export %s=%q\n", k, v)
 			}
 			for k, vals := range resp.PrependPaths {
-				fmt.Printf("export %s=\"%s%s${%s}\"\n", k, strings.Join(vals, sep), sep, k)
+				if expand {
+					// Fully resolved value (cosm's paths prepended to the inherited
+					// var) — no unexpanded ${VAR}, for tools that parse the output.
+					val := strings.Join(vals, sep)
+					if cur := os.Getenv(k); cur != "" {
+						val += sep + cur
+					}
+					fmt.Printf("export %s=%q\n", k, val)
+				} else {
+					fmt.Printf("export %s=\"%s%s${%s}\"\n", k, strings.Join(vals, sep), sep, k)
+				}
 			}
 			return nil
 		},
 	}
 	buildFlags(cmd)
+	cmd.Flags().Bool("expand", false, "print fully-resolved values (no ${VAR}); for tools parsing the output")
 	return cmd
 }
 
@@ -169,6 +181,8 @@ func testCmd() *cobra.Command {
 			}
 			jobs, _ := cmd.Flags().GetInt("jobs")
 			verbose, _ := cmd.Flags().GetBool("verbose")
+			cxxFlags, _ := cmd.Flags().GetString("cxxflags")
+			ldFlags, _ := cmd.Flags().GetString("ldflags")
 			m := materializer(s, buildTypeFromFlags(cmd), jobs)
 			// Build the whole test closure (regular deps + testDeps) so their install
 			// prefixes exist; the extension configures the project's tests against
@@ -189,6 +203,8 @@ func testCmd() *cobra.Command {
 				Config:   m.Opt.ConfigJSON(),
 				Jobs:     m.Opt.Jobs,
 				Verbose:  verbose,
+				CxxFlags: cxxFlags,
+				LdFlags:  ldFlags,
 				Args:     args,
 			})
 			if err != nil {
@@ -218,6 +234,8 @@ func testCmd() *cobra.Command {
 	}
 	buildFlags(cmd)
 	cmd.Flags().Bool("verbose", false, "print full test output (not just on failure)")
+	cmd.Flags().String("cxxflags", "", "extra compile flags for this test run (e.g. coverage instrumentation)")
+	cmd.Flags().String("ldflags", "", "extra link flags for this test run")
 	return cmd
 }
 

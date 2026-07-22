@@ -141,22 +141,31 @@ target gated on `find_package(<testdep>)` is actually built — a plain
 of tests; `cosm test` **fails** on a failing test **and on a run that discovers zero
 tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
 - `--verbose` — print the full test output even when it passes.
+- `--cxxflags "<flags>"` / `--ldflags "<flags>"` — extra compile / link flags for
+  this run only (e.g. `--cxxflags "-fprofile-instr-generate -fcoverage-mapping"
+  --ldflags "-fprofile-instr-generate"` to ride an llvm-cov coverage gate on
+  `cosm test`). For CMake these map to `CMAKE_CXX_FLAGS` / `CMAKE_*_LINKER_FLAGS`.
 - `-- <args>` — everything after `--` is forwarded to the underlying runner (e.g.
   `cosm test -- -R mytag --output-on-failure` → `ctest`).
 
 **`cosm env`** — print the assembled environment as shell `export` lines; load it
 with `eval "$(cosm env)"`.
+- `--expand` — print fully-resolved values (cosm's paths prepended to the inherited
+  variable) instead of the `…:${VAR}` template, for tools that **parse** the output
+  rather than `eval` it.
 
 **`cosm shell`** (alias **`cosm activate`**) — build, then open an interactive
 shell (`$SHELL`) with the environment applied.
 
 ### Develop
 
-**`cosm develop <name>`** — make a package available for co-development in the
+**`cosm develop [name]`** — make a package available for co-development in the
 depot's shared workspace (`$COSM_DEPOT/dev/<name>@v<major>`) and enroll this project
 to use it. Enrollment is authoritative; the checkout is created on demand. Resolves
 in precedence order: an already-adopted workspace unit, then a resolved dependency
 (cloned from its registry URL).
+- `--all` — enroll **every** workspace package this project depends on (no `<name>`),
+  so you adopt a whole co-developed stack in one command.
 - `--path <dir>` — **adopt a local checkout** (symlinked into the workspace) instead
   of cloning. This is how you co-develop a **new, unpublished** package: the sibling
   needn't be in any registry. Its identity comes from `<dir>/cosm.json`. Pair it with

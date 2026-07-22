@@ -104,7 +104,9 @@ type TestRequest struct {
 	Config   json.RawMessage `json:"config,omitempty"` // same shape as BuildRequest.Config
 	Jobs     int             `json:"jobs,omitempty"`
 	Verbose  bool            `json:"verbose,omitempty"`
-	Args     []string        `json:"args,omitempty"` // forwarded to the underlying runner (e.g. ctest)
+	CxxFlags string          `json:"cxxFlags,omitempty"` // extra compile flags for this run (e.g. coverage)
+	LdFlags  string          `json:"ldFlags,omitempty"`  // extra link flags for this run
+	Args     []string        `json:"args,omitempty"`     // forwarded to the underlying runner (e.g. ctest)
 }
 
 // TestResponse is the `test` verb output. Status is "ok" or "failed"; the extension

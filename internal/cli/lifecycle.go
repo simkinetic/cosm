@@ -11,13 +11,36 @@ import (
 
 func developCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "develop <name>",
+		Use:   "develop [name]",
 		Short: "Check out a dependency for co-development and enroll this project",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := newService()
 			if err != nil {
 				return err
+			}
+			cwd, _ := os.Getwd()
+
+			if all, _ := cmd.Flags().GetBool("all"); all {
+				if len(args) > 0 {
+					return fmt.Errorf("%w: give a <name> or --all, not both", errs.ErrUsage)
+				}
+				names, err := s.DevelopAll(cwd)
+				if err != nil {
+					return err
+				}
+				if len(names) == 0 {
+					fmt.Println("No workspace packages are dependencies of this project.")
+					return nil
+				}
+				for _, n := range names {
+					fmt.Printf("Developing '%s'\n", n)
+				}
+				return nil
+			}
+
+			if len(args) == 0 {
+				return fmt.Errorf("%w: package name required (or use --all)", errs.ErrUsage)
 			}
 			major, _ := cmd.Flags().GetInt("major")
 			branch, _ := cmd.Flags().GetString("branch")
@@ -29,7 +52,6 @@ func developCmd() *cobra.Command {
 			if devPath != "" && (branch != "" || tag != "") {
 				return fmt.Errorf("%w: --path adopts a local checkout as-is; --branch/--tag don't apply", errs.ErrUsage)
 			}
-			cwd, _ := os.Getwd()
 			checkout, err := s.Develop(cwd, args[0], major, branch, tag, devPath)
 			if err != nil {
 				return err
@@ -41,6 +63,7 @@ func developCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().Bool("all", false, "enroll every workspace package this project depends on")
 	cmd.Flags().Int("major", -1, "disambiguate which major to develop")
 	cmd.Flags().String("branch", "", "check out a branch")
 	cmd.Flags().String("tag", "", "check out a released tag")

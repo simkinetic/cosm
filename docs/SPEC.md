@@ -835,15 +835,17 @@ a spawned subshell is one option, not the only one.
   run. The extension reports pass/fail and a test count; `cosm test` fails on a
   failing test and on a **zero-test run** (vacuous-pass guardrail), surfacing the
   captured output on failure (always with `--verbose`). Args after `--` forward to the
-  runner (e.g. `ctest`).
+  runner (e.g. `ctest`); `--cxxflags`/`--ldflags` add per-run compile/link flags (e.g.
+  coverage instrumentation), applied to the test configure.
 - `cosm run [--] <cmd> [args…]` — **primary execution primitive.** Build if needed,
   then exec `<cmd>` once with the assembled environment. Ephemeral, reproducible,
   works in any shell / CI / editor. E.g. `cosm run -- lua src/main.lua`,
   `cosm run -- ./build/app`.
-- `cosm env [--shell bash|zsh|fish|powershell] [--json] [--direnv]` — print the
-  assembled environment in the requested shell syntax (default: detected `$SHELL`),
-  as JSON, or as a direnv `.envrc` (`use cosm`). Lets the user load it into their
-  **own** shell (`eval "$(cosm env)"`) or feed other tools. Cross-shell; no subshell.
+- `cosm env [--expand]` — print the assembled environment as shell `export` lines
+  for the user to load into their **own** shell (`eval "$(cosm env)"`) or feed other
+  tools. By default, prepended path vars are emitted as `…:${VAR}` (correct under
+  `eval`); `--expand` prints the fully-resolved value instead (no `${VAR}`), for tools
+  that parse rather than eval.
 - `cosm shell` (alias `cosm activate`) — **opt-in** interactive convenience: launch
   the user's shell (detected; bash/zsh/fish-aware) with the environment applied via a
   generated shell-appropriate init and a `cosm>` prompt marker. Implemented as a thin
@@ -904,6 +906,9 @@ to use them (per-project opt-in, §7.4). Two pieces of state: the depot
   (recorded in `dev/workspace.json`). Disambiguate a multi-major dependency with
   `--major`. Only enrolled projects resolve to the dev tree (§7.4); enrollment is
   authoritative, so an enrolled unit is re-cloned on demand if its checkout is removed.
+- `cosm develop --all` (no `<name>`) enrolls the current project in **every** workspace
+  package it depends on (cloning any missing shared checkouts) — adopt a whole
+  co-developed stack in one command instead of one `cosm develop <name>` at a time.
 - `--path <dir>` **bootstraps a new, unpublished sibling**: it adopts the local
   package at `<dir>` (identity from its `cosm.json`) by symlinking it into the
   workspace (entry marked `"local": true`), so it needn't exist in any registry.

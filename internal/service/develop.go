@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"cosm/internal/develop"
@@ -95,6 +96,45 @@ func (s *Service) Develop(projectDir, name string, major int, branch, tag, path 
 		return "", err
 	}
 	return devDir, nil
+}
+
+// DevelopAll enrolls this project in every workspace package it depends on (the
+// ergonomic "develop the whole stack at once"), cloning any missing shared
+// checkouts. Returns the names enrolled, sorted.
+func (s *Service) DevelopAll(projectDir string) ([]string, error) {
+	_, bl, _, err := s.Resolve(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	ws, err := manifest.LoadWorkspace(s.D.WorkspaceFile())
+	if err != nil {
+		return nil, err
+	}
+	inWS := map[string]types.WorkspaceEntry{}
+	for _, e := range ws.Entries {
+		inWS[semver.UnitKey(e.UUID, e.Major)] = e
+	}
+	var names []string
+	for key := range bl.Dependencies {
+		we, ok := inWS[key]
+		if !ok {
+			continue
+		}
+		if _, statErr := os.Lstat(s.D.DevUnit(we.Name, we.Major)); os.IsNotExist(statErr) {
+			if we.GitURL == "" {
+				return nil, fmt.Errorf("%w: %s is in the workspace but its checkout is missing and it has no git URL", errs.ErrUsage, we.Name)
+			}
+			if err := s.cloneDevUnit(we, "", ""); err != nil {
+				return nil, err
+			}
+		}
+		if err := s.enroll(projectDir, key); err != nil {
+			return nil, err
+		}
+		names = append(names, we.Name)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // developFromPath adopts a local package checkout (possibly never published) into

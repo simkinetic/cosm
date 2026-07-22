@@ -22,6 +22,50 @@ func hasWarn(warns []resolve.Warning, code string) bool {
 	return false
 }
 
+// TestDevelopAll enrolls this project in every workspace package it depends on.
+func TestDevelopAll(t *testing.T) {
+	d := seedDepot(t)
+	seedPkg(t, d, "R", "p", "u-p", mkSpec("p", "u-p", "v1.0.0"))
+	seedPkg(t, d, "R", "q", "u-q", mkSpec("q", "u-q", "v1.0.0"))
+	s := New(d, gitx.Exec{})
+	proj := t.TempDir()
+	writeProject(t, proj, map[string]types.Dependency{
+		semver.UnitKey("u-p", 1): {Name: "p", Version: "v1.0.0"},
+		semver.UnitKey("u-q", 1): {Name: "q", Version: "v1.0.0"},
+	})
+
+	// p is in the workspace (checkout present); q is not.
+	pDev := d.DevUnit("p", 1)
+	if err := os.MkdirAll(pDev, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.SaveManifest(filepath.Join(pDev, "cosm.json"),
+		&types.Manifest{Name: "p", UUID: "u-p", Version: "v1.0.0", Build: "lua"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.SaveWorkspace(d.WorkspaceFile(), &types.Workspace{
+		SchemaVersion: 1,
+		Entries:       []types.WorkspaceEntry{{Name: "p", UUID: "u-p", Major: 1, Path: "dev/p@v1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	names, err := s.DevelopAll(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "p" {
+		t.Fatalf("DevelopAll enrolled %v, want [p]", names)
+	}
+	_, bl, _, _ := s.Resolve(proj)
+	if !bl.Dependencies[semver.UnitKey("u-p", 1)].Develop {
+		t.Error("p should resolve as develop after --all")
+	}
+	if bl.Dependencies[semver.UnitKey("u-q", 1)].Develop {
+		t.Error("q must not be develop (not in the workspace)")
+	}
+}
+
 // TestDevelopAdvisories: build/test/run/env/status all resolve through here, so the
 // two silent develop states are surfaced uniformly — a dependency sitting in the
 // workspace this project isn't developing, and an enrolled unit whose checkout is

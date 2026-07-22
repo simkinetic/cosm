@@ -79,7 +79,8 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
 
 - Run cosm commands from **inside** the specific package directory you're editing.
 - `cosm develop <name>` / `cosm free <name>` manage which packages live in this
-  workspace. Avoid `cosm free --purge` unless the user asks — it deletes a checkout
+  workspace; `cosm develop --all` enrolls every workspace package this project depends
+  on at once. Avoid `cosm free --purge` unless the user asks — it deletes a checkout
   and any uncommitted work (for a `--path`-adopted local package it removes only the
   symlink, not your working directory).
 - **Co-developing a brand-new, unpublished package** (e.g. a sibling you're creating

@@ -259,6 +259,14 @@ func doTest() {
 	if len(prefixes) > 0 {
 		configure = append(configure, "-DCMAKE_PREFIX_PATH="+strings.Join(prefixes, ";"))
 	}
+	if req.CxxFlags != "" {
+		configure = append(configure, "-DCMAKE_CXX_FLAGS="+req.CxxFlags)
+	}
+	if req.LdFlags != "" {
+		configure = append(configure,
+			"-DCMAKE_EXE_LINKER_FLAGS="+req.LdFlags,
+			"-DCMAKE_SHARED_LINKER_FLAGS="+req.LdFlags)
+	}
 	if _, cerr := runCapture(logf, "", "cmake", configure...); cerr != nil {
 		fail()
 		return

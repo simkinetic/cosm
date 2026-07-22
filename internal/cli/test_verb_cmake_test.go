@@ -114,6 +114,13 @@ endif()
 		t.Fatalf("expected passing tests, got: %q", out)
 	}
 
+	// Wishlist: extra compile/link flags reach the test configure (coverage can ride
+	// cosm test), and `env --expand` emits no unexpanded ${VAR}.
+	ok(runCLI(t, app, "test", "--cxxflags", "-DNDEBUG=1", "--ldflags", ""))
+	if out := ok(runCLI(t, app, "env", "--expand")); strings.Contains(out, "${") {
+		t.Fatalf("env --expand left an unexpanded ${VAR}: %q", out)
+	}
+
 	// A deliberately failing test must fail `cosm test`.
 	writeCanary(43)
 	if _, err := runCLI(t, app, "test"); err == nil {
