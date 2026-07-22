@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package manifest loads and saves cosm's JSON documents (§4), stamping the
 // schema version and normalizing nil maps.
 package manifest

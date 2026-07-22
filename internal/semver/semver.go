@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package semver wraps golang.org/x/mod/semver with cosm-specific helpers:
 // full SemVer 2.0.0 with a leading "v" (§6.1) and compatibility-unit keys (§6.3).
 package semver

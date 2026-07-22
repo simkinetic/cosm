@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package buildkey computes the content hash that keys a built artifact (§8.3).
 package buildkey
 

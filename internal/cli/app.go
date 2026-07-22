@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package cli wires the cobra command tree to the service layer (§12).
 package cli
 

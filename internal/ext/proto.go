@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package ext defines the extension protocol (§9.3) and a Runner that invokes
 // out-of-process extensions over JSON on stdin/stdout. Reference extensions in
 // cmd/cosm-ext-* import these same types.

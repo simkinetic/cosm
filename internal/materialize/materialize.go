@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package materialize turns a resolved build list into built artifacts and an
 // activation environment (§8): fetch/export/verify sources, topological build
 // via extensions with a build-key artifact cache, binary-registry consumption

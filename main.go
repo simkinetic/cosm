@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Command cosm is a language-agnostic package manager (see SPEC.md).
 package main
 

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package gitx is the Git boundary (§16.1). Higher layers depend on the Git
 // interface; Exec implements it by shelling out to the git binary. Tests use
 // fakes or a real local git via file:// bare repos.

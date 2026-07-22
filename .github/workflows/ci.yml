@@ -8,6 +8,13 @@ on:
     branches: ['**']
 
 jobs:
+  reuse:
+    name: REUSE compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fsfe/reuse-action@v5
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

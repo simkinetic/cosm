@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Command cosm-ext-lua is the reference Lua build-system extension (§9.4).
 // Lua is interpreted: "build" copies sources into the prefix and the descriptor
 // carries LUA_PATH roots; "activate" assembles LUA_PATH from deps + the project.

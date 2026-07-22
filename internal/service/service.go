@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package service composes the depot, git, registry, and resolver into the
 // project-level operations the CLI drives (§12).
 package service

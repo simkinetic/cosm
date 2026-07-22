@@ -1,0 +1,18 @@
+version = 1
+
+# Non-source files (docs, config, and generated files) that don't carry an inline
+# SPDX header. Source files (*.go, *.sh) are annotated in-file.
+[[annotations]]
+path = [
+    "*.md",
+    "docs/*.md",
+    ".github/workflows/*.yml",
+    "go.mod",
+    "go.sum",
+    "Makefile",
+    ".gitignore",
+    "REUSE.toml",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Simkinetic"
+SPDX-License-Identifier = "MIT"

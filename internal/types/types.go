@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package types holds the pure on-disk data model for cosm (§4 of SPEC.md).
 // These structs are serialized to/from JSON and carry no behavior.
 package types

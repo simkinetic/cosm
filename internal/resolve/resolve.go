@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package resolve implements Minimal Version Selection (§7).
 //
 // The algorithm is a visited-once traversal over direct-requirement edges

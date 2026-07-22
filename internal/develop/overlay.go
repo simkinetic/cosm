@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package develop builds the resolve.DevOverlay from the depot's shared
 // workspace and a project's per-project enrollment (§7.4). Resolution stays
 // offline: checkouts are materialized separately (by `cosm develop` or an

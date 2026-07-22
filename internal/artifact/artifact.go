@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package artifact packs, stores, fetches, and verifies binary build artifacts
 // for binary registries (§8.5). Artifacts are gzip-compressed tarballs addressed
 // by their sha256; the store is any directory (referenced by file:// URLs) or an

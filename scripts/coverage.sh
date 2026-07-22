@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2026 Simkinetic
+#
+# SPDX-License-Identifier: MIT
+
 # Runs the test suite with cross-package coverage and enforces per-package
 # minimums on the algorithmic core (§16). CLI glue, main, and the extension
 # binaries are covered behaviorally by the in-process/e2e tests.

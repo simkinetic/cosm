@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package registry implements the sharded on-disk registry layout (§4.3), a
 // disk-backed SpecLoader for the resolver (§7), and registry mutations (§12.5).
 package registry

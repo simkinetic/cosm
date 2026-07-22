@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package depot owns the on-disk depot layout (§5), its config (§11.3),
 // bootstrap/resolution (§11.2), and the cross-process lock (§10.3).
 package depot

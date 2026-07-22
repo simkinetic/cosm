@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package extlib provides helpers shared by the reference extensions
 // (cmd/cosm-ext-*): stdin/stdout JSON plumbing and a source-tree copier.
 package extlib

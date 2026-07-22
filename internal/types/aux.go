@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 package types
 
 // RegistryRef is an entry in the depot's registries.json (§5).

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package errs defines cosm's typed error taxonomy and exit-code mapping (§10).
 // Callers match with errors.Is/As — never by string.
 package errs

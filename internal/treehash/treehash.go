@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Package treehash computes the deterministic content hash of a source tree
 // (§6.4): sha256 over a canonical, sorted walk of path + mode + contents, with
 // git metadata (.git) excluded. It is the integrity anchor and a build-key input.

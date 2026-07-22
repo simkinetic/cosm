@@ -130,3 +130,11 @@ version, warning on each forced change; only a genuinely unsatisfiable dependenc
 is an error.
 
 Out of scope for now: Windows.
+
+## License
+
+cosm is licensed under the [MIT License](LICENSES/MIT.txt). The repository is
+[REUSE](https://reuse.software)-compliant: every file carries SPDX copyright and
+license information (in-file for source, via `REUSE.toml` for the rest), so
+`reuse lint` reports full compliance. Contributions are accepted under the same
+license.

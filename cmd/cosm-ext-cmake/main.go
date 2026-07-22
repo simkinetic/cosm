@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Simkinetic
+//
+// SPDX-License-Identifier: MIT
+
 // Command cosm-ext-cmake is the reference C++/CMake build-system extension
 // (§9.5). It builds a package with CMake, installs into the prefix, and reports
 // an install-prefix descriptor so dependents' find_package(CONFIG) works.
