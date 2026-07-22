@@ -12,6 +12,7 @@ path = [
     "Makefile",
     ".gitignore",
     "REUSE.toml",
+    "LICENSE",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Simkinetic"
