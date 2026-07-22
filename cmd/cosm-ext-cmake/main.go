@@ -4,8 +4,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -202,11 +204,128 @@ install(EXPORT %[1]sTargets FILE %[1]sConfig.cmake NAMESPACE %[1]s:: DESTINATION
 	}))
 }
 
+// doTest configures the project's SOURCE fresh with the full test closure on
+// CMAKE_PREFIX_PATH (regular deps + testDeps, so find_package of a test-only dep
+// like Catch2 succeeds), builds, and runs ctest. It reports pass/fail and the
+// number of tests via the response (not a non-zero exit) so the core can surface
+// the captured log and guard against a vacuous zero-test pass.
 func doTest() {
 	var req ext.TestRequest
 	must(extlib.ReadRequest(&req))
-	_ = req
-	must(extlib.WriteResponse(ext.TestResponse{Status: "ok"}))
+	if _, err := exec.LookPath("cmake"); err != nil {
+		extlib.Fatal("cmake not found on PATH")
+	}
+	if _, err := exec.LookPath("ctest"); err != nil {
+		extlib.Fatal("ctest not found on PATH")
+	}
+	cfg := buildConfig{BuildType: "Debug"}
+	if len(req.Config) > 0 {
+		_ = json.Unmarshal(req.Config, &cfg)
+	}
+
+	// CMAKE_PREFIX_PATH spans the whole test closure so a test-only dependency's
+	// package config is findable at configure time.
+	var prefixes []string
+	for _, d := range req.Deps {
+		var desc cmakeDescriptor
+		if len(d.Descriptor) > 0 {
+			_ = json.Unmarshal(d.Descriptor, &desc)
+		}
+		for _, rel := range desc.CMakePrefixPath {
+			prefixes = append(prefixes, filepath.Join(d.Prefix, rel))
+		}
+	}
+
+	tag := sanitize(req.Project.Name + "-" + req.Project.Version)
+	logPath := filepath.Join(os.TempDir(), "cosm-test-"+tag+".log")
+	logf, err := os.Create(logPath)
+	if err != nil {
+		extlib.Fatal("open log: %v", err)
+	}
+	defer logf.Close()
+	buildDir := filepath.Join(os.TempDir(), "cosm-cmake-test-"+tag)
+	os.RemoveAll(buildDir)
+	defer os.RemoveAll(buildDir)
+
+	fail := func() {
+		must(extlib.WriteResponse(ext.TestResponse{Status: "failed", Log: logPath, Tests: -1}))
+	}
+
+	configure := []string{
+		"-S", req.Project.Source, "-B", buildDir,
+		"-DCMAKE_BUILD_TYPE=" + cfg.BuildType,
+		"-DBUILD_TESTING=ON",
+	}
+	if len(prefixes) > 0 {
+		configure = append(configure, "-DCMAKE_PREFIX_PATH="+strings.Join(prefixes, ";"))
+	}
+	if _, cerr := runCapture(logf, "", "cmake", configure...); cerr != nil {
+		fail()
+		return
+	}
+	buildArgs := []string{"--build", buildDir}
+	if req.Jobs > 0 {
+		buildArgs = append(buildArgs, "-j", fmt.Sprintf("%d", req.Jobs))
+	}
+	if _, berr := runCapture(logf, "", "cmake", buildArgs...); berr != nil {
+		fail()
+		return
+	}
+
+	ctestArgs := []string{}
+	if req.Verbose {
+		ctestArgs = append(ctestArgs, "-V")
+	} else {
+		ctestArgs = append(ctestArgs, "--output-on-failure")
+	}
+	ctestArgs = append(ctestArgs, req.Args...)
+	out, terr := runCapture(logf, buildDir, "ctest", ctestArgs...)
+	tests := parseCtestCount(out)
+	status := "ok"
+	if terr != nil {
+		status = "failed"
+	}
+	must(extlib.WriteResponse(ext.TestResponse{Status: status, Log: logPath, Tests: tests}))
+}
+
+// runCapture runs name+args in dir (cwd if ""), tee-ing combined output to logf and
+// returning it as a string for parsing.
+func runCapture(logf *os.File, dir, name string, args ...string) (string, error) {
+	fmt.Fprintf(logf, "\n$ %s %s\n", name, strings.Join(args, " "))
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	var buf bytes.Buffer
+	w := io.MultiWriter(logf, &buf)
+	cmd.Stdout, cmd.Stderr = w, w
+	err := cmd.Run()
+	return buf.String(), err
+}
+
+// parseCtestCount extracts the number of tests ctest ran (0 when it found none,
+// -1 when it can't be determined).
+func parseCtestCount(out string) int {
+	if strings.Contains(out, "No tests were found") {
+		return 0
+	}
+	if i := strings.LastIndex(out, "out of "); i >= 0 {
+		var n int
+		if _, err := fmt.Sscanf(out[i+len("out of "):], "%d", &n); err == nil {
+			return n
+		}
+	}
+	return -1
+}
+
+func sanitize(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 func runCMake(args ...string) {

@@ -94,15 +94,25 @@ type ScaffoldResponse struct {
 	Ext      map[string]json.RawMessage `json:"ext,omitempty"`
 }
 
-// TestRequest is the `test` verb input.
+// TestRequest is the `test` verb input. Deps is the full transitive test closure
+// (regular deps + testDeps) with install prefixes, so the extension can configure
+// the project's tests against them.
 type TestRequest struct {
-	Project  PackageCtx     `json:"project"`
-	Platform types.Platform `json:"platform"`
-	Deps     []DepCtx       `json:"deps"`
-	Args     []string       `json:"args,omitempty"`
+	Project  PackageCtx      `json:"project"`
+	Platform types.Platform  `json:"platform"`
+	Deps     []DepCtx        `json:"deps"`
+	Config   json.RawMessage `json:"config,omitempty"` // same shape as BuildRequest.Config
+	Jobs     int             `json:"jobs,omitempty"`
+	Verbose  bool            `json:"verbose,omitempty"`
+	Args     []string        `json:"args,omitempty"` // forwarded to the underlying runner (e.g. ctest)
 }
 
-// TestResponse is the `test` verb output.
+// TestResponse is the `test` verb output. Status is "ok" or "failed"; the extension
+// reports failure this way (not via a non-zero exit) so the core can surface Log
+// uniformly. Tests is the number of tests run (-1 if the runner can't report it);
+// the core treats 0 as a failure (a vacuous pass guardrail).
 type TestResponse struct {
 	Status string `json:"status"`
+	Log    string `json:"log,omitempty"`   // path to captured configure/build/test output
+	Tests  int    `json:"tests,omitempty"` // number of tests run; -1 = unknown
 }

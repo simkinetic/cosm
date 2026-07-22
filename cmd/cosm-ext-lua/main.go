@@ -4,9 +4,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -120,12 +123,63 @@ func doScaffold() {
 	must(extlib.WriteResponse(ext.ScaffoldResponse{Files: created, Provides: []string{ns}}))
 }
 
+// doTest runs each test/*.lua with LUA_PATH assembled from the test closure. It
+// skips (reports unknown) when no interpreter is installed, so the pipeline stays
+// testable without lua; otherwise a non-zero test is a failure and the number of
+// test files is reported so the core can guard a zero-test run.
 func doTest() {
 	var req ext.TestRequest
 	must(extlib.ReadRequest(&req))
-	// A full runner would exec `lua test/...`; the reference keeps it a no-op OK
-	// so the pipeline is testable without a lua interpreter installed.
-	must(extlib.WriteResponse(ext.TestResponse{Status: "ok"}))
+	if _, err := exec.LookPath("lua"); err != nil {
+		must(extlib.WriteResponse(ext.TestResponse{Status: "ok", Tests: -1}))
+		return
+	}
+	files, _ := filepath.Glob(filepath.Join(req.Project.Source, "test", "*.lua"))
+
+	roots := luaRoots(req.Project.Source)
+	for _, d := range req.Deps {
+		var desc luaDescriptor
+		if len(d.Descriptor) > 0 {
+			_ = json.Unmarshal(d.Descriptor, &desc)
+		}
+		for _, rel := range desc.LuaPath {
+			roots = append(roots, filepath.Join(d.Prefix, rel))
+		}
+	}
+	luaPath := strings.Join(roots, ";") + ";;"
+
+	logPath := filepath.Join(os.TempDir(), "cosm-test-"+sanitize(req.Project.Name)+".log")
+	logf, ferr := os.Create(logPath)
+	if ferr != nil {
+		extlib.Fatal("open log: %v", ferr)
+	}
+	defer logf.Close()
+
+	status := "ok"
+	for _, f := range files {
+		fmt.Fprintf(logf, "\n$ lua %s\n", f)
+		cmd := exec.Command("lua", f)
+		cmd.Env = append(os.Environ(), "LUA_PATH="+luaPath)
+		var buf bytes.Buffer
+		w := io.MultiWriter(logf, &buf)
+		cmd.Stdout, cmd.Stderr = w, w
+		if err := cmd.Run(); err != nil {
+			status = "failed"
+		}
+	}
+	must(extlib.WriteResponse(ext.TestResponse{Status: status, Log: logPath, Tests: len(files)}))
+}
+
+func sanitize(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 // luaRoots returns the absolute LUA_PATH "?" roots for a package rooted at dir.

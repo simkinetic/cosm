@@ -614,7 +614,7 @@ Verbs:
 | `info` | Report identity/capabilities. |
 | `scaffold` | Create a new package's source layout for `cosm init --build <ext>`, and return its module namespaces (`provides`) + any default `ext`. The core writes `cosm.json`; the extension does not. |
 | `build` | Configure/compile/install a version into a prefix; emit a descriptor. |
-| `test` | (optional) Run the package's test suite in the built environment. |
+| `test` | (optional) Configure/run the package's tests against the full test-closure prefixes; report pass/fail + test count (0 = vacuous-pass guardrail) + a captured log. |
 | `activate` | Produce the run/test environment for a root project + its deps. |
 
 `info` response:
@@ -667,6 +667,9 @@ The core merges `prependPaths` in dependency order and applies `env` verbatim.
   (`;;`-terminated), add the root project's own `src`.
 - `scaffold`: create `src/<name>@v<major>/<name>.lua` + a test stub, and return
   `provides: ["<name>@v<major>"]` (the core writes `cosm.json`).
+- `test`: run each `test/*.lua` with `LUA_PATH` assembled from the test closure;
+  a non-zero file is a failure. Skips (reports unknown count) when no `lua` is on
+  PATH so the pipeline stays testable.
 
 ### 9.5 Reference extension — C++/CMake (`cosm-ext-cmake`)
 - `build`:
@@ -685,6 +688,11 @@ The core merges `prependPaths` in dependency order and applies `env` verbatim.
   (darwin) / `LD_LIBRARY_PATH` (linux) from `libDirs`, `PATH` from `binDirs`.
   `toolchainId` reflects compiler id+version so the build key changes across
   toolchains.
+- `test`: configure the project **source** fresh with `CMAKE_PREFIX_PATH` spanning
+  the full test closure (regular deps + testDeps, so `find_package(<testdep>)` such
+  as Catch2 resolves), `cmake --build`, then `ctest` (forwarding `--verbose`/`-- args`)
+  in a captured log. Reports failed on a ctest failure and the test count parsed from
+  ctest output (0 → the core's vacuous-pass guardrail fires).
 - `scaffold`: create a starter `CMakeLists.txt`, `include/<name>_v<major>/<name>.hpp`,
   and `src/<name>.cpp` (the versioned C++ binding of the namespace, §4.1), and return
   `provides: ["<name>@v<major>"]` plus a default `ext.cmake.minimumVersion` (the core
@@ -814,8 +822,13 @@ a spawned subshell is one option, not the only one.
 
 - `cosm build [--release|--debug] [--jobs N] [--offline]` — resolve → materialize →
   topological build via extensions. Reuses the artifact cache.
-- `cosm test` — build, then invoke the extension's `test` verb (§9.3) in the built
-  environment; errors (`E_EXT_PROTOCOL`) if the extension does not implement it.
+- `cosm test [--verbose] [-- <runner args>]` — build the test closure (regular deps
+  **and** `testDeps`, §7.6), then invoke the extension's `test` verb (§9.3) with each
+  dep's install **prefix**, so tests gated on a test-only dependency configure and
+  run. The extension reports pass/fail and a test count; `cosm test` fails on a
+  failing test and on a **zero-test run** (vacuous-pass guardrail), surfacing the
+  captured output on failure (always with `--verbose`). Args after `--` forward to the
+  runner (e.g. `ctest`).
 - `cosm run [--] <cmd> [args…]` — **primary execution primitive.** Build if needed,
   then exec `<cmd>` once with the assembled environment. Ephemeral, reproducible,
   works in any shell / CI / editor. E.g. `cosm run -- lua src/main.lua`,

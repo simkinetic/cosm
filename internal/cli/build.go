@@ -166,30 +166,64 @@ func testCmd() *cobra.Command {
 				return fmt.Errorf("%w: project has no build system", errs.ErrUsage)
 			}
 			jobs, _ := cmd.Flags().GetInt("jobs")
+			verbose, _ := cmd.Flags().GetBool("verbose")
 			m := materializer(s, buildTypeFromFlags(cmd), jobs)
-			built, err := m.EnsureBuilt(root, cwd, bl)
+			// Build the whole test closure (regular deps + testDeps) so their install
+			// prefixes exist; the extension configures the project's tests against
+			// them (the root itself is (re)configured from source by the test verb).
+			built, err := m.BuildAll(bl)
 			if err != nil {
 				return err
 			}
 			var deps []ext.DepCtx
 			for key, e := range bl.Dependencies {
-				deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Descriptor: built[key].Descriptor})
+				b := built[key]
+				deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Prefix: b.Prefix, Descriptor: b.Descriptor})
 			}
 			resp, err := ext.NewRunner(s.D).Test(root.Build, ext.TestRequest{
 				Project:  ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: cwd, Provides: root.Provides},
 				Platform: m.Opt.Platform,
 				Deps:     deps,
+				Config:   m.Opt.ConfigJSON(),
+				Jobs:     m.Opt.Jobs,
+				Verbose:  verbose,
 				Args:     args,
 			})
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Tests %s\n", resp.Status)
+			// Surface the captured output on failure, or when asked.
+			if resp.Log != "" && (verbose || resp.Status != "ok") {
+				if data, rerr := os.ReadFile(resp.Log); rerr == nil {
+					fmt.Print(string(data))
+				}
+			}
+			if resp.Status != "ok" {
+				return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log}
+			}
+			// Guardrail: a run that discovered zero tests is a vacuous pass.
+			if resp.Tests == 0 {
+				return fmt.Errorf("%w: no tests were discovered or run for %s%s",
+					errs.ErrUsage, root.Name, logHint(resp.Log))
+			}
+			if resp.Tests > 0 {
+				fmt.Printf("Tests ok (%d run)\n", resp.Tests)
+			} else {
+				fmt.Printf("Tests %s\n", resp.Status)
+			}
 			return nil
 		},
 	}
 	buildFlags(cmd)
+	cmd.Flags().Bool("verbose", false, "print full test output (not just on failure)")
 	return cmd
+}
+
+func logHint(path string) string {
+	if path == "" {
+		return ""
+	}
+	return " (see " + path + ")"
 }
 
 func shellCmd() *cobra.Command {

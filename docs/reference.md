@@ -129,9 +129,16 @@ the assembled environment. The command is resolved against that environment's
 `PATH`, so a just-built binary is found. E.g. `cosm run -- lua src/main.lua`,
 `cosm run -- ./app`.
 
-**`cosm test`** — build, then invoke the project extension's `test` verb. Resolves
-with the project's `testDeps` included (they and their regular closure are on the
-build/test environment); a plain `cosm build`/`cosm run` excludes them.
+**`cosm test`** — build the test closure, then invoke the project extension's `test`
+verb. Resolves with the project's `testDeps` included, and their install prefixes
+are put on the test configure environment (e.g. `CMAKE_PREFIX_PATH`), so a test
+target gated on `find_package(<testdep>)` is actually built — a plain
+`cosm build`/`cosm run` excludes them. The extension reports pass/fail and the number
+of tests; `cosm test` **fails** on a failing test **and on a run that discovers zero
+tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
+- `--verbose` — print the full test output even when it passes.
+- `-- <args>` — everything after `--` is forwarded to the underlying runner (e.g.
+  `cosm test -- -R mytag --output-on-failure` → `ctest`).
 
 **`cosm env`** — print the assembled environment as shell `export` lines; load it
 with `eval "$(cosm env)"`.
