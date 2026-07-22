@@ -128,6 +128,12 @@ func setupCmd() *cobra.Command {
 			if err := d.Setup(); err != nil {
 				return err
 			}
+			// Setup keeps any existing index (idempotent); validate it so a depot
+			// carried over from an older/incompatible cosm fails here with guidance,
+			// not cryptically on a later command.
+			if _, err := manifest.LoadRegistryRefs(d.RegistriesFile()); err != nil {
+				return err
+			}
 			if store, _ := cmd.Flags().GetString("store"); store != "" {
 				cfg, _ := d.LoadConfig()
 				cfg.ArtifactStore = store

@@ -124,7 +124,12 @@ func LoadRegistryRefs(path string) ([]types.RegistryRef, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, err
+		// A malformed index is almost always a depot from an older/incompatible
+		// cosm (which stored a different shape); give an actionable message rather
+		// than leaking the JSON type mismatch.
+		return nil, fmt.Errorf("%w: %s is not a valid registries index — this $COSM_DEPOT looks like it was "+
+			"created by an older/incompatible cosm. Point COSM_DEPOT at a fresh directory and re-run 'cosm setup', "+
+			"or remove %s to reinitialize the index", errs.ErrUsage, path, path)
 	}
 	return refs, nil
 }

@@ -2,12 +2,44 @@ package manifest
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cosm/internal/errs"
 	"cosm/internal/types"
 )
+
+// TestLoadRegistryRefsIncompatible: an index in an older cosm's shape (array of
+// strings) yields an actionable usage error, not a raw JSON type mismatch.
+func TestLoadRegistryRefsIncompatible(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "registries.json")
+	if err := os.WriteFile(p, []byte(`["cosmlua","cosmcpp"]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadRegistryRefs(p)
+	if err == nil {
+		t.Fatal("expected an error for an incompatible index")
+	}
+	if !errors.Is(err, errs.ErrUsage) {
+		t.Errorf("want ErrUsage, got %v", err)
+	}
+	if strings.Contains(err.Error(), "unmarshal") || !strings.Contains(err.Error(), "older/incompatible cosm") {
+		t.Errorf("error should be actionable, got: %v", err)
+	}
+
+	// A valid index still round-trips, and a missing file is empty (no error).
+	if err := SaveRegistryRefs(p, []types.RegistryRef{{Name: "R", UUID: "u", GitURL: "g"}}); err != nil {
+		t.Fatal(err)
+	}
+	if refs, err := LoadRegistryRefs(p); err != nil || len(refs) != 1 || refs[0].Name != "R" {
+		t.Fatalf("valid index: %v %v", refs, err)
+	}
+	if refs, err := LoadRegistryRefs(filepath.Join(t.TempDir(), "none.json")); err != nil || refs != nil {
+		t.Fatalf("missing index should be empty: %v %v", refs, err)
+	}
+}
 
 func TestManifestRoundTrip(t *testing.T) {
 	dir := t.TempDir()
