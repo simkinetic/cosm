@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"cosm/internal/errs"
 )
 
 // TestCmakeTest_TestDepsAndGuardrail is the regression for the vacuous-pass bug:
@@ -121,16 +123,29 @@ endif()
 		t.Fatalf("env --expand left an unexpanded ${VAR}: %q", out)
 	}
 
-	// A deliberately failing test must fail `cosm test`.
+	// A deliberately failing test must fail `cosm test` — reported as a TEST failure
+	// (not "build failed …"), with the test exit code (6).
 	writeCanary(43)
-	if _, err := runCLI(t, app, "test"); err == nil {
+	_, err := runCLI(t, app, "test")
+	if err == nil {
 		t.Fatal("a failing test must make 'cosm test' fail")
+	}
+	if !strings.Contains(err.Error(), "tests failed") || strings.Contains(err.Error(), "build failed") {
+		t.Fatalf("test failure should read as a test failure, got: %v", err)
+	}
+	if code := errs.ExitCode(err); code != 6 {
+		t.Fatalf("test-failure exit code = %d, want 6", code)
 	}
 
 	// Zero-test guardrail: without the testDep, find_package fails, no tests are
-	// configured, and a zero-test run must not pass.
+	// configured — a zero-test run must not pass ("Tests ok (0 run)" is impossible),
+	// and it fails with the same test exit code.
 	ok(runCLI(t, app, "rm", "checklib"))
-	if _, err := runCLI(t, app, "test"); err == nil {
-		t.Fatal("a run that discovers zero tests must not pass")
+	_, err = runCLI(t, app, "test")
+	if err == nil || !strings.Contains(err.Error(), "no tests were discovered") {
+		t.Fatalf("zero-test run must fail with a no-tests message, got: %v", err)
+	}
+	if code := errs.ExitCode(err); code != 6 {
+		t.Fatalf("zero-test exit code = %d, want 6", code)
 	}
 }

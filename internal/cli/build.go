@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -219,10 +220,11 @@ func testCmd() *cobra.Command {
 			if resp.Status != "ok" {
 				return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log}
 			}
-			// Guardrail: a run that discovered zero tests is a vacuous pass.
+			// Guardrail: a run that discovered zero tests is a vacuous pass — treat it
+			// as a test failure (same exit code), not a silent success.
 			if resp.Tests == 0 {
-				return fmt.Errorf("%w: no tests were discovered or run for %s%s",
-					errs.ErrUsage, root.Name, logHint(resp.Log))
+				return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log,
+					Err: errors.New("no tests were discovered or run")}
 			}
 			if resp.Tests > 0 {
 				fmt.Printf("Tests ok (%d run)\n", resp.Tests)
@@ -239,12 +241,6 @@ func testCmd() *cobra.Command {
 	return cmd
 }
 
-func logHint(path string) string {
-	if path == "" {
-		return ""
-	}
-	return " (see " + path + ")"
-}
 
 func shellCmd() *cobra.Command {
 	cmd := &cobra.Command{

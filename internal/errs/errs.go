@@ -35,7 +35,12 @@ type BuildFailedError struct {
 }
 
 func (e *BuildFailedError) Error() string {
-	msg := fmt.Sprintf("build failed for %s during %s", e.Package, e.Phase)
+	var msg string
+	if e.Phase == "test" {
+		msg = fmt.Sprintf("tests failed for %s", e.Package)
+	} else {
+		msg = fmt.Sprintf("build failed for %s during %s", e.Package, e.Phase)
+	}
 	if e.LogPath != "" {
 		msg += " (log: " + e.LogPath + ")"
 	}
