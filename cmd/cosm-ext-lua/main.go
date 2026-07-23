@@ -165,7 +165,11 @@ func doTest() {
 		cmd := exec.Command("lua", f)
 		cmd.Env = append(os.Environ(), "LUA_PATH="+luaPath)
 		var buf bytes.Buffer
-		w := io.MultiWriter(logf, &buf)
+		writers := []io.Writer{logf, &buf}
+		if req.Verbose { // stream live (tee'd to the terminal by the core)
+			writers = append(writers, os.Stderr)
+		}
+		w := io.MultiWriter(writers...)
 		cmd.Stdout, cmd.Stderr = w, w
 		if err := cmd.Run(); err != nil {
 			status = "failed"

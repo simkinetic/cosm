@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,9 @@ import (
 // Runner discovers and invokes extensions (§9.2).
 type Runner struct {
 	d depot.Depot
+	// Stream, when set, receives the long verbs' (build/test) stderr live in
+	// addition to the buffer used for failure reporting — for `--verbose`.
+	Stream io.Writer
 }
 
 func NewRunner(d depot.Depot) *Runner { return &Runner{d: d} }
@@ -36,7 +40,9 @@ func (r *Runner) exePath(id string) (string, error) {
 	return "", fmt.Errorf("%w: %s", errs.ErrExtNotFound, name)
 }
 
-func (r *Runner) call(id, verb string, req, resp any) error {
+// call invokes the extension verb. stderr is always buffered (for the failure
+// message); when stream is non-nil it is also tee'd there live (`--verbose`).
+func (r *Runner) call(id, verb string, req, resp any, stream io.Writer) error {
 	exe, err := r.exePath(id)
 	if err != nil {
 		return err
@@ -51,7 +57,11 @@ func (r *Runner) call(id, verb string, req, resp any) error {
 	cmd.Stdin = bytes.NewReader(in)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
-	cmd.Stderr = &errb
+	if stream != nil {
+		cmd.Stderr = io.MultiWriter(&errb, stream)
+	} else {
+		cmd.Stderr = &errb
+	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("extension '%s %s' failed: %v\n%s", id, verb, err, errb.String())
 	}
@@ -65,7 +75,7 @@ func (r *Runner) call(id, verb string, req, resp any) error {
 
 func (r *Runner) Info(id string) (Info, error) {
 	var info Info
-	if err := r.call(id, "info", nil, &info); err != nil {
+	if err := r.call(id, "info", nil, &info, nil); err != nil {
 		return Info{}, err
 	}
 	if info.Protocol != Protocol {
@@ -76,24 +86,24 @@ func (r *Runner) Info(id string) (Info, error) {
 
 func (r *Runner) Build(id string, req BuildRequest) (BuildResponse, error) {
 	var resp BuildResponse
-	err := r.call(id, "build", req, &resp)
+	err := r.call(id, "build", req, &resp, r.Stream)
 	return resp, err
 }
 
 func (r *Runner) Activate(id string, req ActivateRequest) (ActivateResponse, error) {
 	var resp ActivateResponse
-	err := r.call(id, "activate", req, &resp)
+	err := r.call(id, "activate", req, &resp, nil)
 	return resp, err
 }
 
 func (r *Runner) Scaffold(id string, req ScaffoldRequest) (ScaffoldResponse, error) {
 	var resp ScaffoldResponse
-	err := r.call(id, "scaffold", req, &resp)
+	err := r.call(id, "scaffold", req, &resp, nil)
 	return resp, err
 }
 
 func (r *Runner) Test(id string, req TestRequest) (TestResponse, error) {
 	var resp TestResponse
-	err := r.call(id, "test", req, &resp)
+	err := r.call(id, "test", req, &resp, r.Stream)
 	return resp, err
 }

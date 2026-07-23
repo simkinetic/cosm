@@ -24,6 +24,7 @@ type PublishOpts struct {
 	Registry  string
 	Store     string // directory for the artifact store
 	BuildType string // Release | Debug
+	Verbose   bool   // stream the build output live
 }
 
 // Publish builds the current project for the local platform, uploads the built
@@ -49,9 +50,14 @@ func (s *Service) Publish(projectDir string, opts PublishOpts) (string, error) {
 	}
 
 	platform := types.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH}
+	run := ext.NewRunner(s.D)
+	if opts.Verbose {
+		run.Stream = os.Stderr
+	}
 	mat := &materialize.Materializer{
-		D: s.D, Git: s.Git, Run: ext.NewRunner(s.D), Specs: s.Loader,
-		Opt: materialize.Options{Platform: platform, BuildType: opts.BuildType, Jobs: runtime.NumCPU()},
+		D: s.D, Git: s.Git, Run: run, Specs: s.Loader,
+		Progress: os.Stderr, // publish builds; show per-node progress on stderr
+		Opt:      materialize.Options{Platform: platform, BuildType: opts.BuildType, Jobs: runtime.NumCPU(), Verbose: opts.Verbose},
 	}
 
 	_, bl, _, err := s.Resolve(projectDir)

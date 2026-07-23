@@ -11,9 +11,11 @@ package materialize
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"cosm/internal/artifact"
 	"cosm/internal/buildkey"
@@ -36,6 +38,7 @@ type Options struct {
 	Platform  types.Platform
 	BuildType string // "Release" | "Debug"
 	Jobs      int
+	Verbose   bool // stream the extension's build/test output live + raise its verbosity
 }
 
 func (o Options) configJSON() json.RawMessage {
@@ -48,12 +51,13 @@ func (o Options) ConfigJSON() json.RawMessage { return o.configJSON() }
 
 // Materializer performs materialization and building.
 type Materializer struct {
-	D     depot.Depot
-	Git   gitx.Git
-	Run   *ext.Runner
-	Specs SpecLoader // optional: enables binary-registry consumption
-	Opt   Options
-	info  map[string]ext.Info
+	D        depot.Depot
+	Git      gitx.Git
+	Run      *ext.Runner
+	Specs    SpecLoader // optional: enables binary-registry consumption
+	Opt      Options
+	Progress io.Writer // per-node build progress lines (nil = quiet)
+	info     map[string]ext.Info
 }
 
 // Built is the result of building (or downloading) one node.
@@ -124,15 +128,19 @@ func (m *Materializer) BuildAll(bl types.BuildList) (map[string]Built, error) {
 		return nil, err
 	}
 	built := map[string]Built{}
-	for _, key := range order {
+	total := len(order)
+	for i, key := range order {
 		e := bl.Dependencies[key]
 		if e.Build == "" {
 			return nil, fmt.Errorf("%w: dependency %s has no build system", errs.ErrUsage, e.Name)
 		}
-		b, err := m.buildNode(e, built, bl)
+		m.reportStart(fmt.Sprintf("[%d/%d]", i+1, total), e)
+		t0 := time.Now()
+		b, cached, err := m.buildNode(e, built, bl)
 		if err != nil {
 			return nil, err
 		}
+		m.reportDone(fmt.Sprintf("[%d/%d]", i+1, total), e, cached, time.Since(t0))
 		b.UnitKey = key
 		built[key] = b
 	}
@@ -157,11 +165,34 @@ func (m *Materializer) BuildProject(root *types.Manifest, projectDir string, bl 
 		Name: root.Name, UUID: root.UUID, Version: root.Version, Build: root.Build,
 		Provides: root.Provides, Develop: true, SourcePath: projectDir, DepKeys: rootDepKeys,
 	}
-	rootBuilt, err := m.buildNode(rootEntry, built, bl)
+	m.reportStart("[root]", rootEntry)
+	t0 := time.Now()
+	rootBuilt, cached, err := m.buildNode(rootEntry, built, bl)
 	if err != nil {
 		return nil, Built{}, err
 	}
+	m.reportDone("[root]", rootEntry, cached, time.Since(t0))
 	return built, rootBuilt, nil
+}
+
+// reportStart prints a "building" header before a node builds (verbose only, so the
+// streamed extension output has context).
+func (m *Materializer) reportStart(tag string, e types.BuildListEntry) {
+	if m.Progress != nil && m.Opt.Verbose {
+		fmt.Fprintf(m.Progress, "%s building %s %s [%s]\n", tag, e.Name, e.Version, e.Build)
+	}
+}
+
+// reportDone prints a one-line result for a node (always, when Progress is set).
+func (m *Materializer) reportDone(tag string, e types.BuildListEntry, cached bool, dur time.Duration) {
+	if m.Progress == nil {
+		return
+	}
+	if cached {
+		fmt.Fprintf(m.Progress, "%s %s %s (cached)\n", tag, e.Name, e.Version)
+	} else {
+		fmt.Fprintf(m.Progress, "%s %s %s (%.1fs)\n", tag, e.Name, e.Version, dur.Seconds())
+	}
 }
 
 // EnsureBuilt builds the dependency graph and the root project.
@@ -170,16 +201,16 @@ func (m *Materializer) EnsureBuilt(root *types.Manifest, projectDir string, bl t
 	return built, err
 }
 
-func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built, bl types.BuildList) (Built, error) {
+func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built, bl types.BuildList) (Built, bool, error) {
 	info, err := m.infoFor(e.Build)
 	if err != nil {
-		return Built{}, err
+		return Built{}, false, err
 	}
 
 	tree := e.Tree
 	if e.Develop || tree == "" {
 		if tree, err = treehash.Tree(e.SourcePath); err != nil {
-			return Built{}, err
+			return Built{}, false, err
 		}
 	}
 	seg := e.Commit
@@ -219,7 +250,7 @@ func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built,
 	descPath := filepath.Join(buildDir, "descriptor.json")
 
 	if data, err := os.ReadFile(descPath); err == nil { // artifact cache hit
-		return Built{BuildKey: bk, Prefix: prefix, Descriptor: data}, nil
+		return Built{BuildKey: bk, Prefix: prefix, Descriptor: data}, true, nil
 	}
 
 	// Binary-registry consumption: if a matching prebuilt artifact exists, use it.
@@ -228,11 +259,11 @@ func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built,
 			for _, b := range sp.Binaries {
 				if b.BuildKey == bk && b.Platform.OS == m.Opt.Platform.OS && b.Platform.Arch == m.Opt.Platform.Arch {
 					if err := m.consumeBinary(b, prefix); err != nil {
-						return Built{}, err
+						return Built{}, false, err
 					}
 					_ = os.WriteFile(descPath, normalizeDescriptor(b.Descriptor), 0o644)
 					writeMeta(buildDir, bk, m.Opt, e.Name, e.Version, depBKs, "binary")
-					return Built{BuildKey: bk, Prefix: prefix, Descriptor: b.Descriptor}, nil
+					return Built{BuildKey: bk, Prefix: prefix, Descriptor: b.Descriptor}, false, nil
 				}
 			}
 		}
@@ -242,11 +273,11 @@ func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built,
 	src := e.SourcePath
 	if !e.Develop {
 		if src, err = m.EnsureSource(e); err != nil {
-			return Built{}, err
+			return Built{}, false, err
 		}
 	}
 	if err := os.MkdirAll(prefix, 0o755); err != nil {
-		return Built{}, err
+		return Built{}, false, err
 	}
 	resp, err := m.Run.Build(e.Build, ext.BuildRequest{
 		Package:  ext.PackageCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Source: src, Provides: e.Provides},
@@ -256,16 +287,17 @@ func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built,
 		Config:   m.Opt.configJSON(),
 		Deps:     deps,
 		Jobs:     m.Opt.Jobs,
+		Verbose:  m.Opt.Verbose,
 	})
 	if err != nil {
 		os.RemoveAll(buildDir)
-		return Built{}, &errs.BuildFailedError{Package: e.Name, Phase: "build", LogPath: resp.Log, Err: err}
+		return Built{}, false, &errs.BuildFailedError{Package: e.Name, Phase: "build", LogPath: resp.Log, Err: err}
 	}
 	if err := os.WriteFile(descPath, normalizeDescriptor(resp.Descriptor), 0o644); err != nil {
-		return Built{}, err
+		return Built{}, false, err
 	}
 	writeMeta(buildDir, bk, m.Opt, e.Name, e.Version, depBKs, "source")
-	return Built{BuildKey: bk, Prefix: prefix, Descriptor: resp.Descriptor}, nil
+	return Built{BuildKey: bk, Prefix: prefix, Descriptor: resp.Descriptor}, false, nil
 }
 
 func (m *Materializer) consumeBinary(b types.BinaryArtifact, prefix string) error {

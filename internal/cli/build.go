@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -23,21 +24,33 @@ import (
 	"cosm/internal/types"
 )
 
-func materializer(s *service.Service, buildType string, jobs int) *materialize.Materializer {
+// materializer builds the Materializer for a CLI command. progress shows per-node
+// build lines (on stderr); verbose additionally streams the extension's build/test
+// output live and raises the tool's own verbosity.
+func materializer(s *service.Service, buildType string, jobs int, verbose, progress bool) *materialize.Materializer {
 	if jobs <= 0 {
 		jobs = runtime.NumCPU()
 	}
-	return &materialize.Materializer{
+	run := ext.NewRunner(s.D)
+	m := &materialize.Materializer{
 		D:     s.D,
 		Git:   s.Git,
-		Run:   ext.NewRunner(s.D),
+		Run:   run,
 		Specs: s.Loader,
 		Opt: materialize.Options{
 			Platform:  types.Platform{OS: runtime.GOOS, Arch: runtime.GOARCH},
 			BuildType: buildType,
 			Jobs:      jobs,
+			Verbose:   verbose,
 		},
 	}
+	if progress || verbose {
+		m.Progress = os.Stderr
+	}
+	if verbose {
+		run.Stream = os.Stderr
+	}
+	return m
 }
 
 func buildTypeFromFlags(cmd *cobra.Command) string {
@@ -51,6 +64,7 @@ func buildFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("release", true, "build in release mode")
 	cmd.Flags().Bool("debug", false, "build in debug mode")
 	cmd.Flags().Int("jobs", 0, "parallel build jobs (default: CPUs)")
+	cmd.Flags().BoolP("verbose", "v", false, "stream the extension's build/test output live and in full detail")
 }
 
 func buildCmd() *cobra.Command {
@@ -69,11 +83,13 @@ func buildCmd() *cobra.Command {
 			}
 			printWarns(warns)
 			jobs, _ := cmd.Flags().GetInt("jobs")
-			m := materializer(s, buildTypeFromFlags(cmd), jobs)
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			m := materializer(s, buildTypeFromFlags(cmd), jobs, verbose, true)
+			t0 := time.Now()
 			if _, err := m.EnsureBuilt(root, cwd, bl); err != nil {
 				return err
 			}
-			fmt.Printf("Built %s (%d dependencies)\n", root.Name, len(bl.Dependencies))
+			fmt.Printf("Built %s (%d dependencies) in %.1fs\n", root.Name, len(bl.Dependencies), time.Since(t0).Seconds())
 			return nil
 		},
 	}
@@ -130,7 +146,8 @@ func envCmd() *cobra.Command {
 			}
 			printWarns(warns)
 			jobs, _ := cmd.Flags().GetInt("jobs")
-			m := materializer(s, buildTypeFromFlags(cmd), jobs)
+			verbose, _ := cmd.Flags().GetBool("verbose")
+			m := materializer(s, buildTypeFromFlags(cmd), jobs, verbose, verbose)
 			built, rootBuilt, err := m.BuildProject(root, cwd, bl)
 			if err != nil {
 				return err
@@ -193,7 +210,7 @@ func testCmd() *cobra.Command {
 			keepBuild, _ := cmd.Flags().GetBool("keep-build")
 			cxxFlags, _ := cmd.Flags().GetString("cxxflags")
 			ldFlags, _ := cmd.Flags().GetString("ldflags")
-			m := materializer(s, buildTypeFromFlags(cmd), jobs)
+			m := materializer(s, buildTypeFromFlags(cmd), jobs, verbose, true)
 			// Build the whole test closure (regular deps + testDeps) so their install
 			// prefixes exist; the extension configures the project's tests against
 			// them (the root itself is (re)configured from source by the test verb).
@@ -206,7 +223,7 @@ func testCmd() *cobra.Command {
 				b := built[key]
 				deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Prefix: b.Prefix, Descriptor: b.Descriptor})
 			}
-			resp, err := ext.NewRunner(s.D).Test(root.Build, ext.TestRequest{
+			resp, err := m.Run.Test(root.Build, ext.TestRequest{
 				Project:  ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: cwd, Provides: root.Provides},
 				Platform: m.Opt.Platform,
 				Deps:     deps,
@@ -221,8 +238,9 @@ func testCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Surface the captured output on failure, or when asked.
-			if resp.Log != "" && (verbose || resp.Status != "ok") {
+			// On failure, surface the captured output — unless --verbose already
+			// streamed it live.
+			if resp.Log != "" && resp.Status != "ok" && !verbose {
 				if data, rerr := os.ReadFile(resp.Log); rerr == nil {
 					fmt.Print(string(data))
 				}
@@ -248,7 +266,6 @@ func testCmd() *cobra.Command {
 		},
 	}
 	buildFlags(cmd)
-	cmd.Flags().Bool("verbose", false, "print full test output (not just on failure)")
 	cmd.Flags().Bool("keep-build", false, "keep the test build tree and print its path (for coverage tools)")
 	cmd.Flags().String("cxxflags", "", "extra compile flags for this test run (e.g. coverage instrumentation)")
 	cmd.Flags().String("ldflags", "", "extra link flags for this test run")
@@ -294,9 +311,10 @@ func publishCmd() *cobra.Command {
 			}
 			reg, _ := cmd.Flags().GetString("registry")
 			store, _ := cmd.Flags().GetString("store")
+			verbose, _ := cmd.Flags().GetBool("verbose")
 			cwd, _ := os.Getwd()
 			ver, err := s.Publish(cwd, service.PublishOpts{
-				Registry: reg, Store: store, BuildType: buildTypeFromFlags(cmd),
+				Registry: reg, Store: store, BuildType: buildTypeFromFlags(cmd), Verbose: verbose,
 			})
 			if err != nil {
 				return err
@@ -308,6 +326,7 @@ func publishCmd() *cobra.Command {
 	cmd.Flags().String("registry", "", "target binary/mixed registry")
 	cmd.Flags().String("store", "", "artifact store directory")
 	cmd.Flags().Bool("debug", false, "debug build")
+	cmd.Flags().BoolP("verbose", "v", false, "stream the build output live")
 	return cmd
 }
 
@@ -324,7 +343,8 @@ func buildAndActivate(cmd *cobra.Command) ([]string, error) {
 	}
 	printWarns(warns)
 	jobs, _ := cmd.Flags().GetInt("jobs")
-	m := materializer(s, buildTypeFromFlags(cmd), jobs)
+	verbose, _ := cmd.Flags().GetBool("verbose")
+	m := materializer(s, buildTypeFromFlags(cmd), jobs, verbose, verbose)
 	built, rootBuilt, err := m.BuildProject(root, cwd, bl)
 	if err != nil {
 		return nil, err

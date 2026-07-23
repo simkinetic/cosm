@@ -109,7 +109,11 @@ func doBuild() {
 	if jobs <= 0 {
 		jobs = 1
 	}
-	runCMake("--build", buildDir, "-j", fmt.Sprintf("%d", jobs))
+	buildArgs := []string{"--build", buildDir, "-j", fmt.Sprintf("%d", jobs)}
+	if req.Verbose {
+		buildArgs = append(buildArgs, "--verbose") // full compiler command lines
+	}
+	runCMake(buildArgs...)
 	runCMake("--install", buildDir)
 
 	// Prefix-relative descriptor (relocatable).
@@ -257,6 +261,13 @@ func doTest() {
 		kept = buildDir
 	}
 
+	// `--verbose`: also stream configure/build/ctest output to stderr (tee'd live to
+	// the terminal by the core), not only into the captured log.
+	var live io.Writer
+	if req.Verbose {
+		live = os.Stderr
+	}
+
 	fail := func() {
 		must(extlib.WriteResponse(ext.TestResponse{Status: "failed", Log: logPath, Tests: -1, BuildDir: kept}))
 	}
@@ -277,7 +288,7 @@ func doTest() {
 			"-DCMAKE_EXE_LINKER_FLAGS="+req.LdFlags,
 			"-DCMAKE_SHARED_LINKER_FLAGS="+req.LdFlags)
 	}
-	if _, cerr := runCapture(logf, "", "cmake", configure...); cerr != nil {
+	if _, cerr := runCapture(logf, live, "", "cmake", configure...); cerr != nil {
 		fail()
 		return
 	}
@@ -285,7 +296,7 @@ func doTest() {
 	if req.Jobs > 0 {
 		buildArgs = append(buildArgs, "-j", fmt.Sprintf("%d", req.Jobs))
 	}
-	if _, berr := runCapture(logf, "", "cmake", buildArgs...); berr != nil {
+	if _, berr := runCapture(logf, live, "", "cmake", buildArgs...); berr != nil {
 		fail()
 		return
 	}
@@ -297,7 +308,7 @@ func doTest() {
 		ctestArgs = append(ctestArgs, "--output-on-failure")
 	}
 	ctestArgs = append(ctestArgs, req.Args...)
-	out, terr := runCapture(logf, buildDir, "ctest", ctestArgs...)
+	out, terr := runCapture(logf, live, buildDir, "ctest", ctestArgs...)
 	tests := parseCtestCount(out)
 	status := "ok"
 	if terr != nil {
@@ -308,12 +319,15 @@ func doTest() {
 
 // runCapture runs name+args in dir (cwd if ""), tee-ing combined output to logf and
 // returning it as a string for parsing.
-func runCapture(logf *os.File, dir, name string, args ...string) (string, error) {
+func runCapture(logf *os.File, live io.Writer, dir, name string, args ...string) (string, error) {
 	fmt.Fprintf(logf, "\n$ %s %s\n", name, strings.Join(args, " "))
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	var buf bytes.Buffer
 	w := io.MultiWriter(logf, &buf)
+	if live != nil { // `--verbose`: also stream to the extension's stderr (tee'd to the terminal)
+		w = io.MultiWriter(logf, &buf, live)
+	}
 	cmd.Stdout, cmd.Stderr = w, w
 	err := cmd.Run()
 	return buf.String(), err

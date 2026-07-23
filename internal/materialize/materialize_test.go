@@ -5,6 +5,7 @@
 package materialize
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ func fakeExtension(t *testing.T, d depot.Depot, counter string) {
 verb="$1"
 case "$verb" in
   info) echo '{"extension":"fake","version":"0.0.1","protocol":1,"toolchainId":"fake-tc","capabilities":["info","build","activate"]}' ;;
-  build) cat >/dev/null; echo build >> "` + counter + `"; echo '{"status":"ok","descriptor":{"marker":"x"}}' ;;
+  build) cat >/dev/null; echo "ext-build-log" >&2; echo build >> "` + counter + `"; echo '{"status":"ok","descriptor":{"marker":"x"}}' ;;
   activate) cat >/dev/null; echo '{"env":{"FAKE":"1"},"prependPaths":{"FAKE_PATH":["/a","/b"]}}' ;;
   *) echo "unknown verb" >&2; exit 1 ;;
 esac
@@ -157,6 +158,48 @@ func TestActivateAndAssembleEnv(t *testing.T) {
 	want := "/a" + sep + "/b" + sep + "/existing"
 	if got["FAKE_PATH"] != want {
 		t.Errorf("FAKE_PATH = %q want %q", got["FAKE_PATH"], want)
+	}
+}
+
+// TestBuildProgress: BuildAll writes a per-node progress line to Progress, marking
+// cache hits, so long builds aren't silent.
+func TestBuildProgress(t *testing.T) {
+	m, _, _ := newMat(t)
+	var prog bytes.Buffer
+	m.Progress = &prog
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{
+		"u-a@v1": {Name: "a", UUID: "u-a", Major: 1, Version: "v1.0.0", Build: "fake", Develop: true, SourcePath: devDir(t, "a")},
+	}}
+	if _, err := m.BuildAll(bl); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prog.String(), "[1/1] a v1.0.0") {
+		t.Errorf("progress line missing: %q", prog.String())
+	}
+	prog.Reset()
+	if _, err := m.BuildAll(bl); err != nil { // second build → cache hit
+		t.Fatal(err)
+	}
+	if !strings.Contains(prog.String(), "(cached)") {
+		t.Errorf("expected a cached marker: %q", prog.String())
+	}
+}
+
+// TestBuildVerboseStreams: with Run.Stream set (--verbose), the extension's build
+// stderr is tee'd live to the stream.
+func TestBuildVerboseStreams(t *testing.T) {
+	m, _, _ := newMat(t)
+	var stream bytes.Buffer
+	m.Run.Stream = &stream
+	m.Opt.Verbose = true
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{
+		"u-a@v1": {Name: "a", UUID: "u-a", Major: 1, Version: "v1.0.0", Build: "fake", Develop: true, SourcePath: devDir(t, "a")},
+	}}
+	if _, err := m.BuildAll(bl); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stream.String(), "ext-build-log") {
+		t.Errorf("verbose stream missing extension output: %q", stream.String())
 	}
 }
 

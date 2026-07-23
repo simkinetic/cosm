@@ -125,6 +125,15 @@ separate step).
 
 All of these accept `--release` (default), `--debug`, and `--jobs <n>`.
 
+They also share a **`-v, --verbose`** flag (`cosm build`/`run`/`test`/`shell`/`env`/
+`publish`). By default a build prints one **progress line per node** to stderr as it
+goes — `[k/N] building <name> <version> [<ext>]` when it starts and `[k/N] <name>
+<version> (1.2s)` or `(cached)` when it finishes — plus a final `Built <name> (N
+dependencies) in <t>s`, so a long build is never silent. `--verbose` additionally
+**streams the extension's own build/test output live and in full** (for CMake it also
+passes `--verbose` to the underlying build tool, so you see the compiler command
+lines) — use it to watch or debug a slow build.
+
 **`cosm build`** — resolve → materialize (fetch/verify or download binaries) →
 build the dependencies and the project in topological order, reusing the
 build-key artifact cache.
@@ -141,7 +150,9 @@ target gated on `find_package(<testdep>)` is actually built — a plain
 `cosm build`/`cosm run` excludes them. The extension reports pass/fail and the number
 of tests; `cosm test` **fails** on a failing test **and on a run that discovers zero
 tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
-- `--verbose` — print the full test output even when it passes.
+- `-v, --verbose` — stream the configure/build/test output live and in full (the
+  shared verbose flag; see [Build & run](#build--run)). Without it, output is captured
+  and only shown on failure.
 - `--keep-build` — keep the (otherwise ephemeral) test build tree and print its path,
   so coverage tooling can read the test binary/profiles after the run (pair with
   `--cxxflags`/`--ldflags`). The tree is still reconfigured clean each run.
@@ -228,6 +239,7 @@ the local platform, upload the artifact to the store, and record a binary in a
 - `--registry <r>` — target binary/mixed registry (required).
 - `--store <dir>` — artifact store directory (or from config).
 - `--debug` — debug build.
+- `-v, --verbose` — stream the build output live (see [Build & run](#build--run)).
 
 ### Shell completion
 
@@ -416,11 +428,15 @@ version: `1`.
   "platform": { "os": "darwin", "arch": "arm64" },
   "config": { "buildType": "Release" },
   "deps": [ { "name": "…", "uuid": "…", "version": "…", "prefix": "/…", "descriptor": { } } ],
-  "jobs": 8 }
+  "jobs": 8, "verbose": false }
 ```
 ```json
 { "status": "ok", "descriptor": { }, "artifacts": ["…"], "log": "/…/log" }
 ```
+When `verbose` is true the extension should raise its tool's own verbosity (e.g.
+CMake's `--verbose`) and write the tool output to **stderr**; the core streams that
+stderr to the terminal live (`cosm build -v`) while still capturing it for the
+failure message. `stdout` is reserved for the JSON response either way.
 
 **`activate` request → response:**
 ```json

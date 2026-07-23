@@ -56,6 +56,7 @@ type BuildRequest struct {
 	Config   json.RawMessage `json:"config,omitempty"`
 	Deps     []DepCtx        `json:"deps"`
 	Jobs     int             `json:"jobs"`
+	Verbose  bool            `json:"verbose,omitempty"` // raise the tool's own verbosity (full compiler lines)
 }
 
 // BuildResponse is the `build` verb output.

@@ -654,9 +654,13 @@ Verbs:
     { "name": "terratest", "uuid": "...", "version": "v1.0.1",
       "descriptor": { /* opaque, from that dep's build */ } }
   ],
-  "jobs": 8
+  "jobs": 8,
+  "verbose": false
 }
 ```
+`verbose` (optional) asks the extension to raise its tool's verbosity and write the
+tool output to **stderr**, which the core streams live (`cosm build -v`) while still
+capturing it for the failure message; `stdout` stays reserved for the JSON response.
 
 `build` response:
 ```json
@@ -836,15 +840,19 @@ git-like; cobra or equivalent. Global flags on every command:
 The environment (§8.4) is computed once and offered through several delivery modes;
 a spawned subshell is one option, not the only one.
 
-- `cosm build [--release|--debug] [--jobs N]` — resolve → materialize → topological
+- `cosm build [--release|--debug] [--jobs N] [-v]` — resolve → materialize → topological
   build via extensions. Reuses the artifact cache. Offline: it resolves against the
   local registry clones and never pulls (only `cosm add` lazy-syncs on a miss, §12.2).
+  Prints a **per-node progress line** (start, then `(1.2s)`/`(cached)`) and a total to
+  stderr so a long build is never silent; `-v/--verbose` additionally streams the
+  extension's own tool output live (raising the tool's verbosity — e.g. CMake
+  `--verbose`). The verbose flag is shared by `build`/`run`/`test`/`shell`/`publish`.
 - `cosm test [--verbose] [-- <runner args>]` — build the test closure (regular deps
   **and** `testDeps`, §7.6), then invoke the extension's `test` verb (§9.3) with each
   dep's install **prefix**, so tests gated on a test-only dependency configure and
   run. The extension reports pass/fail and a test count; `cosm test` fails on a
   failing test and on a **zero-test run** (vacuous-pass guardrail), surfacing the
-  captured output on failure (always with `--verbose`). Args after `--` forward to the
+  captured output on failure (or live throughout with `-v/--verbose`). Args after `--` forward to the
   runner (e.g. `ctest`); `--cxxflags`/`--ldflags` add per-run compile/link flags (e.g.
   coverage instrumentation), applied to the test configure; `--keep-build` retains the
   test build tree and prints its path (so coverage tooling can read the test binary).
