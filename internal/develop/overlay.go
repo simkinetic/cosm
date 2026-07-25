@@ -40,6 +40,35 @@ func (o *Overlay) Override(uuid string, major int) (types.Manifest, string, bool
 	return e.man, e.path, true
 }
 
+// AddSource redirects the unit whose manifest sits in dir to that directory for
+// this invocation only — nothing is written to the workspace or the enrollment.
+// It wins over an enrolled workspace checkout, and applies whether or not the
+// unit was develop-enrolled at all.
+//
+// This is what makes git worktrees usable: the shared workspace holds exactly one
+// checkout per unit (`$COSM_DEPOT/dev/<name>@v<major>`), so without an override
+// every worktree of a package collapses onto that one path — parallel agents each
+// build and test someone else's tree. Returns the overridden unit's name.
+func (o *Overlay) AddSource(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	man, err := manifest.LoadManifestFromDir(abs)
+	if err != nil {
+		return "", err
+	}
+	mj, err := semver.Major(man.Version)
+	if err != nil {
+		return "", err
+	}
+	if o.entries == nil {
+		o.entries = map[string]entry{}
+	}
+	o.entries[semver.UnitKey(man.UUID, mj)] = entry{man: *man, path: abs}
+	return man.Name, nil
+}
+
 // Missing is an enrolled unit whose shared checkout is absent (needs cloning).
 type Missing struct {
 	Key   string

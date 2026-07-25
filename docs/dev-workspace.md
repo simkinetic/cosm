@@ -99,6 +99,20 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
   The project isn't releasable until the sibling is published (`cosm release` +
   `cosm registry add`), which is a shared-resource step — **ask first** (see the rule
   above).
+- **Working in a git worktree (parallel agents).** This workspace holds exactly one
+  checkout per package, at `<name>@vN/`. If you work in a separate git worktree of a
+  package, a plain `cosm build`/`cosm test` from another project still resolves that
+  dependency to the workspace checkout — i.e. **someone else's tree**, not yours. Pass
+  `--source` to redirect it for that command only:
+
+  ```sh
+  cosm test --source /path/to/worktree/<name>
+  ```
+
+  It is repeatable (once per redirected package), writes nothing to the workspace or
+  enrollment, and prints the redirect. You do **not** need it for the package you are
+  standing in — the current directory always wins for its own package. Test trees are
+  keyed per checkout, so parallel `cosm test` runs no longer clobber each other.
 - Version selection is **MVS**: each package declares minimum dependency versions
   and the maximum of the minimums is chosen. There is no lockfile; resolution is
   reproducible from the manifests.

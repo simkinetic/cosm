@@ -65,6 +65,22 @@ func buildFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("debug", false, "build in debug mode")
 	cmd.Flags().Int("jobs", 0, "parallel build jobs (default: CPUs)")
 	cmd.Flags().BoolP("verbose", "v", false, "stream the extension's build/test output live and in full detail")
+	cmd.Flags().StringArrayP("source", "S", nil, "use this checkout for its package instead of the develop workspace (repeatable; for git worktrees)")
+}
+
+// resolveOpts turns --source into resolve options and reports each redirect, so
+// it is obvious which checkout a build actually used.
+func resolveOpts(cmd *cobra.Command) []service.ResolveOption {
+	dirs, _ := cmd.Flags().GetStringArray("source")
+	if len(dirs) == 0 {
+		return nil
+	}
+	for _, d := range dirs {
+		if abs, err := filepath.Abs(d); err == nil {
+			fmt.Fprintf(os.Stderr, "source override: %s\n", abs)
+		}
+	}
+	return []service.ResolveOption{service.WithSources(dirs)}
 }
 
 func buildCmd() *cobra.Command {
@@ -77,7 +93,7 @@ func buildCmd() *cobra.Command {
 				return err
 			}
 			cwd, _ := os.Getwd()
-			root, bl, warns, err := s.Resolve(cwd)
+			root, bl, warns, err := s.Resolve(cwd, resolveOpts(cmd)...)
 			if err != nil {
 				return err
 			}
@@ -140,7 +156,7 @@ func envCmd() *cobra.Command {
 				return err
 			}
 			cwd, _ := os.Getwd()
-			root, bl, warns, err := s.Resolve(cwd)
+			root, bl, warns, err := s.Resolve(cwd, resolveOpts(cmd)...)
 			if err != nil {
 				return err
 			}
@@ -197,7 +213,7 @@ func testCmd() *cobra.Command {
 			}
 			cwd, _ := os.Getwd()
 			// Tests resolve with the project's test-only dependencies (§7.6).
-			root, bl, warns, err := s.ResolveWithTests(cwd)
+			root, bl, warns, err := s.ResolveWithTests(cwd, resolveOpts(cmd)...)
 			if err != nil {
 				return err
 			}
@@ -337,7 +353,7 @@ func buildAndActivate(cmd *cobra.Command) ([]string, error) {
 		return nil, err
 	}
 	cwd, _ := os.Getwd()
-	root, bl, warns, err := s.Resolve(cwd)
+	root, bl, warns, err := s.Resolve(cwd, resolveOpts(cmd)...)
 	if err != nil {
 		return nil, err
 	}

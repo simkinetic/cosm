@@ -134,6 +134,22 @@ dependencies) in <t>s`, so a long build is never silent. `--verbose` additionall
 passes `--verbose` to the underlying build tool, so you see the compiler command
 lines) — use it to watch or debug a slow build.
 
+They also share **`-S, --source <dir>`** (repeatable): use the checkout at `<dir>`
+for whichever package lives there, instead of that unit's shared develop-workspace
+checkout. The shared workspace holds exactly **one** checkout per unit
+(`$COSM_DEPOT/dev/<name>@v<major>`), so without this every git worktree of a package
+collapses onto that one path — parallel agents each end up building someone else's
+tree. `--source` makes worktrees first-class:
+
+```sh
+cosm test --source ../worktrees/linalg-feature
+```
+
+It applies whether or not the unit was `cosm develop`-enrolled, is **per-invocation**
+(nothing is written to the workspace or the enrollment), and the redirect is echoed
+to stderr. The project you are standing in always wins for its own unit, so a plain
+`cosm test` inside a worktree tests *that* worktree.
+
 **`cosm build`** — resolve → materialize (fetch/verify or download binaries) →
 build the dependencies and the project in topological order, reusing the
 build-key artifact cache.
@@ -156,6 +172,13 @@ tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
 - `--keep-build` — keep the (otherwise ephemeral) test build tree and print its path,
   so coverage tooling can read the test binary/profiles after the run (pair with
   `--cxxflags`/`--ldflags`). The tree is still reconfigured clean each run.
+
+  The test tree and log are keyed by the **source checkout** (plus build type and
+  per-run flags), not by `name@version` — so two worktrees, or two concurrent
+  `cosm test` runs, never share a directory. (They used to: because a run wipes its
+  tree before configuring, one run would delete another's mid-`ctest` and report a
+  bogus all-"Not Run" failure.) The path stays stable for a given invocation, so
+  `--keep-build` remains findable by coverage tooling.
 - `--cxxflags "<flags>"` / `--ldflags "<flags>"` — extra compile / link flags for
   this run only (e.g. `--cxxflags "-fprofile-instr-generate -fcoverage-mapping"
   --ldflags "-fprofile-instr-generate"` to ride an llvm-cov coverage gate on

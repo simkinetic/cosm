@@ -712,7 +712,12 @@ The core merges `prependPaths` in dependency order and applies `env` verbatim.
   the full test closure (regular deps + testDeps, so `find_package(<testdep>)` such
   as Catch2 resolves), `cmake --build`, then `ctest` (forwarding `--verbose`/`-- args`)
   in a captured log. Reports failed on a ctest failure and the test count parsed from
-  ctest output (0 → the core's vacuous-pass guardrail fires).
+  ctest output (0 → the core's vacuous-pass guardrail fires). The scratch tree and log
+  MUST be keyed by the **source checkout** (plus build type and per-run flags), not by
+  `name@version`: a test run wipes its tree before configuring, so a shared key lets
+  concurrent runs — or two worktrees of one package — delete each other's tree
+  mid-`ctest` and report a spurious all-"Not Run" failure. The key stays deterministic
+  per invocation so `--keep-build` yields a stable path.
 - `scaffold`: create a starter `CMakeLists.txt`, `include/<name>_v<major>/<name>.hpp`,
   and `src/<name>.cpp` (the versioned C++ binding of the namespace, §4.1), and return
   `provides: ["<name>@v<major>"]` plus a default `ext.cmake.minimumVersion` (the core
@@ -847,6 +852,9 @@ a spawned subshell is one option, not the only one.
   stderr so a long build is never silent; `-v/--verbose` additionally streams the
   extension's own tool output live (raising the tool's verbosity — e.g. CMake
   `--verbose`). The verbose flag is shared by `build`/`run`/`test`/`shell`/`publish`.
+  `-S/--source <dir>` (repeatable, shared by `build`/`run`/`test`/`shell`/`env`)
+  redirects the unit whose manifest lives at `<dir>` to that checkout for this
+  invocation, overriding the shared workspace (§7.4) — see §12.7.
 - `cosm test [--verbose] [-- <runner args>]` — build the test closure (regular deps
   **and** `testDeps`, §7.6), then invoke the extension's `test` verb (§9.3) with each
   dep's install **prefix**, so tests gated on a test-only dependency configure and
@@ -937,6 +945,15 @@ to use them (per-project opt-in, §7.4). Two pieces of state: the depot
   releasable until the sibling is published.
 - `cosm develop --list` — show shared checkouts and, for the current project, which
   are enrolled, each with its ref and uncommitted-changes state.
+- **Per-invocation source override.** The workspace holds exactly one checkout per
+  unit, so every git worktree of a package otherwise collapses onto that single path
+  — fatal for running agents/tasks in parallel worktrees. `-S/--source <dir>`
+  (repeatable, on `build`/`run`/`test`/`shell`/`env`) redirects the unit whose
+  `cosm.json` sits at `<dir>` to that checkout for **this invocation only**: nothing
+  is written to `workspace.json` or `.cosm/develop.json`, it applies whether or not
+  the unit is enrolled, and it takes precedence over the workspace path. The project
+  directory itself is always applied this way, so a command run inside a worktree
+  operates on that worktree, never on the workspace copy of the same unit.
 - `cosm free <name> [--major <N>] [--purge]` — un-enroll the current project (remove from
   `.cosm/develop.json`); this project's resolution reverts to the released version.
   The shared checkout is retained (other projects may still use it); `--purge` deletes

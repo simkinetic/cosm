@@ -192,3 +192,82 @@ func TestDevelopFromPathBootstrap(t *testing.T) {
 		t.Fatalf("purge deleted the real checkout: %v", err)
 	}
 }
+
+// TestResolveWithSources: --source redirects a dependency to a specific checkout
+// (e.g. a git worktree) for this invocation, overriding the one checkout the
+// shared workspace can hold — without touching the workspace or the enrollment.
+func TestResolveWithSources(t *testing.T) {
+	d := seedDepot(t)
+	seedPkg(t, d, "R", "p", "u-p", mkSpec("p", "u-p", "v1.0.0"))
+	s := New(d, gitx.Exec{})
+	proj := t.TempDir()
+	writeProject(t, proj, map[string]types.Dependency{
+		semver.UnitKey("u-p", 1): {Name: "p", Version: "v1.0.0"},
+	})
+
+	// p is develop-enrolled at the shared workspace checkout.
+	pDev := d.DevUnit("p", 1)
+	if err := os.MkdirAll(pDev, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.SaveManifest(filepath.Join(pDev, "cosm.json"),
+		&types.Manifest{Name: "p", UUID: "u-p", Version: "v1.0.0", Build: "lua"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.SaveWorkspace(d.WorkspaceFile(), &types.Workspace{
+		SchemaVersion: 1,
+		Entries:       []types.WorkspaceEntry{{Name: "p", UUID: "u-p", Major: 1, Path: "dev/p@v1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.SaveEnrollment(develop.EnrollmentPath(proj), &types.Enrollment{
+		Enrolled: []string{semver.UnitKey("u-p", 1)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: the workspace checkout is what gets built.
+	_, bl, _, err := s.Resolve(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bl.Dependencies[semver.UnitKey("u-p", 1)].SourcePath; got != pDev {
+		t.Fatalf("baseline SourcePath = %q, want %q", got, pDev)
+	}
+
+	// A worktree of p elsewhere on disk.
+	wt := t.TempDir()
+	if err := manifest.SaveManifest(filepath.Join(wt, "cosm.json"),
+		&types.Manifest{Name: "p", UUID: "u-p", Version: "v1.0.0", Build: "lua"}); err != nil {
+		t.Fatal(err)
+	}
+	_, bl, _, err = s.ResolveWithTests(proj, WithSources([]string{wt}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := bl.Dependencies[semver.UnitKey("u-p", 1)]
+	if e.SourcePath != wt || !e.Develop {
+		t.Fatalf("with --source: SourcePath = %q develop = %v, want %q true", e.SourcePath, e.Develop, wt)
+	}
+
+	// The override is per-invocation: it must not persist to the next resolve.
+	_, bl, _, err = s.Resolve(proj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bl.Dependencies[semver.UnitKey("u-p", 1)].SourcePath; got != pDev {
+		t.Fatalf("after override, SourcePath = %q, want the workspace checkout %q", got, pDev)
+	}
+}
+
+// TestResolveWithSourcesBadDir: a bogus --source is a usage error, never a silent
+// fallback to a different checkout.
+func TestResolveWithSourcesBadDir(t *testing.T) {
+	d := seedDepot(t)
+	s := New(d, gitx.Exec{})
+	proj := t.TempDir()
+	writeProject(t, proj, nil)
+	if _, _, _, err := s.Resolve(proj, WithSources([]string{t.TempDir()})); err == nil {
+		t.Fatal("expected an error for a --source dir with no cosm.json")
+	}
+}

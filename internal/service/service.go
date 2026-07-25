@@ -34,19 +34,37 @@ func New(d depot.Depot, g gitx.Git) *Service {
 	return &Service{D: d, Git: g, Loader: registry.NewLoader(d), Reg: registry.NewService(d, g)}
 }
 
+// ResolveOption tunes a resolve call.
+type ResolveOption func(*resolveCfg)
+
+type resolveCfg struct {
+	sources []string // per-invocation source overrides (see WithSources)
+}
+
+// WithSources redirects each named checkout's unit to that directory for this
+// invocation, overriding the shared develop workspace. Use it to build/test a git
+// worktree instead of the one checkout the workspace can hold (§7.4).
+func WithSources(dirs []string) ResolveOption {
+	return func(c *resolveCfg) { c.sources = append(c.sources, dirs...) }
+}
+
 // Resolve loads a project's cosm.json and computes its build list, applying any
 // develop overrides enrolled by the project (§7).
-func (s *Service) Resolve(projectDir string) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
-	return s.resolve(projectDir, false)
+func (s *Service) Resolve(projectDir string, opts ...ResolveOption) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
+	return s.resolve(projectDir, false, opts...)
 }
 
 // ResolveWithTests is Resolve but also includes the project's test-only
 // dependencies (§7.6) — used by `cosm test`.
-func (s *Service) ResolveWithTests(projectDir string) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
-	return s.resolve(projectDir, true)
+func (s *Service) ResolveWithTests(projectDir string, opts ...ResolveOption) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
+	return s.resolve(projectDir, true, opts...)
 }
 
-func (s *Service) resolve(projectDir string, includeTests bool) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
+func (s *Service) resolve(projectDir string, includeTests bool, opts ...ResolveOption) (*types.Manifest, types.BuildList, []resolve.Warning, error) {
+	var cfg resolveCfg
+	for _, o := range opts {
+		o(&cfg)
+	}
 	m, err := manifest.LoadManifestFromDir(projectDir)
 	if err != nil {
 		return nil, types.BuildList{}, nil, err
@@ -54,6 +72,15 @@ func (s *Service) resolve(projectDir string, includeTests bool) (*types.Manifest
 	ov, missing, err := develop.Build(s.D, projectDir)
 	if err != nil {
 		return nil, types.BuildList{}, nil, err
+	}
+	// The project you are standing in always wins over a workspace checkout of the
+	// same unit, so `cosm test` in a worktree tests *that* worktree. Best-effort:
+	// the manifest already loaded, so a failure here only means an odd version.
+	_, _ = ov.AddSource(projectDir)
+	for _, dir := range cfg.sources {
+		if _, err := ov.AddSource(dir); err != nil {
+			return nil, types.BuildList{}, nil, fmt.Errorf("%w: --source %s: %v", errs.ErrUsage, dir, err)
+		}
 	}
 	var bl types.BuildList
 	var warns []resolve.Warning

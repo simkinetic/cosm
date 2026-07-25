@@ -9,6 +9,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -244,7 +246,7 @@ func doTest() {
 		}
 	}
 
-	tag := sanitize(req.Project.Name + "-" + req.Project.Version)
+	tag := sanitize(req.Project.Name) + "-" + testKey(req, cfg.BuildType)
 	logPath := filepath.Join(os.TempDir(), "cosm-test-"+tag+".log")
 	logf, err := os.Create(logPath)
 	if err != nil {
@@ -386,6 +388,21 @@ func libEnvVar(goos string) string {
 		return "DYLD_LIBRARY_PATH"
 	}
 	return "LD_LIBRARY_PATH"
+}
+
+// testKey digests the inputs that must not share one test tree. The **source
+// path** is what makes concurrent runs safe: two git worktrees of the same
+// package — or two `cosm test` runs of the same checkout racing each other —
+// used to land on the same `name@version` directory, and since a test run wipes
+// its tree before configuring, one run would delete the other's tree mid-ctest
+// (surfacing as a bogus all-"Not Run" failure). It stays deterministic for a
+// given invocation, so `--keep-build` still yields a stable, findable path.
+func testKey(req ext.TestRequest, buildType string) string {
+	h := sha256.New()
+	for _, s := range []string{req.Project.Source, req.Project.Version, buildType, req.CxxFlags, req.LdFlags} {
+		fmt.Fprintln(h, s)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 func shortKey(k string) string {

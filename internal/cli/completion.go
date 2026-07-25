@@ -44,6 +44,12 @@ func wireCompletions(root *cobra.Command) {
 			_ = c.RegisterFlagCompletionFunc("registry", completeRegistries)
 		}
 	}
+	// --source takes a checkout directory: offer directories only, not every file.
+	for _, n := range []string{"build", "run", "env", "shell", "test"} {
+		if c := sub[n]; c != nil {
+			_ = c.RegisterFlagCompletionFunc("source", completeDirs)
+		}
+	}
 	// `cosm update [registry]`.
 	if c := sub["update"]; c != nil {
 		c.ValidArgsFunction = completeRegistriesFirst
@@ -86,6 +92,12 @@ func completionHint() string {
 // takes no completable positional args.
 func completeNoFile(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return nil, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeDirs restricts a flag's value completion to directories (for --source,
+// which takes a package checkout).
+func completeDirs(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return nil, cobra.ShellCompDirectiveFilterDirs
 }
 
 // completeDeps suggests the current project's direct dependency names.

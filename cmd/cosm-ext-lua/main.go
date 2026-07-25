@@ -9,6 +9,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -152,7 +154,9 @@ func doTest() {
 	}
 	luaPath := strings.Join(roots, ";") + ";;"
 
-	logPath := filepath.Join(os.TempDir(), "cosm-test-"+sanitize(req.Project.Name)+".log")
+	// Key the log by the source checkout too, so two worktrees (or two concurrent
+	// runs) of the same package don't overwrite each other's log.
+	logPath := filepath.Join(os.TempDir(), "cosm-test-"+sanitize(req.Project.Name)+"-"+sourceKey(req.Project.Source)+".log")
 	logf, ferr := os.Create(logPath)
 	if ferr != nil {
 		extlib.Fatal("open log: %v", ferr)
@@ -176,6 +180,13 @@ func doTest() {
 		}
 	}
 	must(extlib.WriteResponse(ext.TestResponse{Status: status, Log: logPath, Tests: len(files)}))
+}
+
+// sourceKey is a short digest of the source checkout path, used to keep
+// per-checkout scratch files (logs) from colliding across worktrees.
+func sourceKey(src string) string {
+	sum := sha256.Sum256([]byte(src))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func sanitize(s string) string {
