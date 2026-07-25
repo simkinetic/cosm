@@ -54,10 +54,14 @@ env → the depot recorded in `${XDG_CONFIG_HOME:-~/.config}/cosm/config.json` �
 **`cosm setup`** — create the depot structure and `config.json`. Idempotent. Prints
 the `export COSM_DEPOT=…` line and a shell-aware **tab-completion** hint to add to
 your profile (it never edits your profile itself; see [Shell completion](#shell-completion)).
-Also writes the [develop-workspace agent guide](dev-workspace.md) to
-`$COSM_DEPOT/dev/CLAUDE.md` unless one already exists (your edits are never
-overwritten).
+Also keeps the [develop-workspace agent guide](dev-workspace.md) at
+`$COSM_DEPOT/dev/CLAUDE.md` current: it writes the guide when none is there, and
+**refreshes it when a newer cosm ships one and your copy is untouched** (cosm records
+the checksum of what it last wrote). If you edited the guide, it is never overwritten
+— setup says so and points at `--force-guide`.
 - `--store <dir>` — persist a default artifact store for `cosm publish`.
+- `--force-guide` — overwrite `dev/CLAUDE.md` with this cosm's guide, discarding local
+  edits. Use it to pull in a new guide after you've customised yours.
 
 ### Project
 

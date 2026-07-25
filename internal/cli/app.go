@@ -7,6 +7,8 @@ package cli
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -149,21 +151,60 @@ func setupCmd() *cobra.Command {
 			fmt.Printf("Depot ready at %s\n", d.Root)
 			fmt.Printf("To pin it for this shell: export COSM_DEPOT=%q\n", d.Root)
 			fmt.Printf("Enable tab completion: %s\n", completionHint())
-			// Drop the agent guide into the develop workspace, unless one is already
-			// there (never clobber a user's edits).
-			if DevWorkspaceGuide != "" {
-				guide := filepath.Join(d.Dev(), "CLAUDE.md")
-				if _, err := os.Stat(guide); os.IsNotExist(err) {
-					if err := os.WriteFile(guide, []byte(DevWorkspaceGuide), 0o644); err == nil {
-						fmt.Printf("Wrote agent guide to %s\n", guide)
-					}
-				}
+			force, _ := cmd.Flags().GetBool("force-guide")
+			if msg := syncDevGuide(d, force); msg != "" {
+				fmt.Print(msg)
 			}
 			return nil
 		},
 	}
 	cmd.Flags().String("store", "", "default artifact store directory for 'cosm publish'")
+	cmd.Flags().Bool("force-guide", false, "overwrite dev/CLAUDE.md with this cosm's agent guide, discarding local edits")
 	return cmd
+}
+
+// syncDevGuide keeps $COSM_DEPOT/dev/CLAUDE.md current without ever losing a
+// user's edits. cosm records the sha256 of what it last wrote, so it can tell an
+// untouched guide (safe to refresh when a new cosm ships a better one) from an
+// edited one (left alone, with a pointer to --force-guide). Returns the line to
+// print, if any.
+func syncDevGuide(d depot.Depot, force bool) string {
+	if DevWorkspaceGuide == "" {
+		return ""
+	}
+	guide := filepath.Join(d.Dev(), "CLAUDE.md")
+	want := sha256.Sum256([]byte(DevWorkspaceGuide))
+	wantSHA := hex.EncodeToString(want[:])
+
+	write := func(verb string) string {
+		if err := os.WriteFile(guide, []byte(DevWorkspaceGuide), 0o644); err != nil {
+			return ""
+		}
+		if cfg, err := d.LoadConfig(); err == nil {
+			cfg.DevGuideSHA = wantSHA
+			_ = d.SaveConfig(cfg)
+		}
+		return fmt.Sprintf("%s agent guide at %s\n", verb, guide)
+	}
+
+	cur, err := os.ReadFile(guide)
+	if err != nil {
+		return write("Wrote")
+	}
+	got := sha256.Sum256(cur)
+	gotSHA := hex.EncodeToString(got[:])
+	if gotSHA == wantSHA {
+		return "" // already current
+	}
+	if force {
+		return write("Refreshed")
+	}
+	// Refresh only if the on-disk guide is exactly what cosm last wrote.
+	if cfg, err := d.LoadConfig(); err == nil && cfg.DevGuideSHA == gotSHA {
+		return write("Updated")
+	}
+	return fmt.Sprintf("Note: %s differs from this cosm's agent guide (kept your version).\n"+
+		"      To replace it with the current one: cosm setup --force-guide\n", guide)
 }
 
 // ---- init ----

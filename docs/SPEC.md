@@ -782,7 +782,13 @@ Messages go to stderr as `error: <what>\n  hint: <fix>`.
 Explicit, idempotent. Creates `$COSM_DEPOT` structure (§5), writes `config.json`,
 and prints the `export COSM_DEPOT=…` line for the user to add to their profile.
 **Does not silently edit shell profiles** (the prototype's `.zprofile` mutation is
-removed).
+removed). It also maintains the develop-workspace agent guide at `dev/CLAUDE.md`
+(§12.7): written when absent, and **refreshed when cosm ships a newer guide and the
+on-disk copy is byte-identical to what cosm last wrote** — tracked by `devGuideSha`
+in `config.json` (§11.3). A guide the user has edited is never overwritten; setup
+reports the divergence and points at `--force-guide`, which replaces it on request.
+Without this, every depot created before a guide change keeps the stale instructions
+forever, which is exactly the copy agents read.
 
 ### 11.2 Depot bootstrap
 On any command, if `$COSM_DEPOT` is unset it is resolved from (in order):
@@ -793,8 +799,11 @@ else default `~/.cosm`. A missing/incomplete depot triggers a clear
 ### 11.3 `config.json`
 ```json
 { "schemaVersion": 1, "depot": "/Users/ekke/.cosm",
-  "defaultShell": "bash", "templatesRepo": "https://github.com/simkinetic/cosm-templates.git" }
+  "defaultShell": "bash", "templatesRepo": "https://github.com/simkinetic/cosm-templates.git",
+  "artifactStore": "/Users/ekke/.cosm/store", "devGuideSha": "c456…" }
 ```
+`devGuideSha` is the checksum of the agent guide cosm last wrote to `dev/CLAUDE.md`
+(§11.1); it is what lets setup distinguish an untouched guide from an edited one.
 
 ---
 
