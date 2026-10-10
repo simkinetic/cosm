@@ -5,12 +5,14 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"cosm/internal/develop"
+	"cosm/internal/errs"
 	"cosm/internal/gitx"
 	"cosm/internal/manifest"
 	"cosm/internal/resolve"
@@ -302,5 +304,36 @@ func TestResolveWithSourcesBadDir(t *testing.T) {
 	writeProject(t, proj, nil)
 	if _, _, _, err := s.Resolve(proj, WithSources([]string{t.TempDir()})); err == nil {
 		t.Fatal("expected an error for a --source dir with no cosm.json")
+	}
+}
+
+// TestMissingUnpublishedDevelopDep: an unpublished, develop-only dependency has no
+// registry release to fall back to, so a missing checkout — or running against the
+// wrong depot — used to fail with a bare "not found in any registry", pointing away
+// from the real cause. The error must say where cosm looked, and still wrap the
+// original error (same exit code).
+func TestMissingUnpublishedDevelopDep(t *testing.T) {
+	d := seedDepot(t) // a depot that does NOT hold the sibling's checkout
+	s := New(d, gitx.Exec{})
+	proj := t.TempDir()
+	writeProject(t, proj, map[string]types.Dependency{
+		semver.UnitKey("u-sib", 0): {Name: "sib", Version: "v0.1.0"},
+	})
+	if err := manifest.SaveEnrollment(develop.EnrollmentPath(proj), &types.Enrollment{
+		Enrolled: []string{semver.UnitKey("u-sib", 0)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err := s.Resolve(proj)
+	if err == nil {
+		t.Fatal("expected a resolution error")
+	}
+	if !errors.Is(err, errs.ErrPackageNotFound) {
+		t.Errorf("original error must stay wrapped (exit code): %v", err)
+	}
+	for _, want := range []string{"sib is enrolled for development", d.Root, d.DevUnit("sib", 0), "COSM_DEPOT"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should mention %q:\n%v", want, err)
+		}
 	}
 }

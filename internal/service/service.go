@@ -91,6 +91,18 @@ func (s *Service) resolve(projectDir string, includeTests bool, opts ...ResolveO
 	}
 	if err == nil {
 		warns = append(warns, s.developAdvisories(projectDir, bl, missing)...)
+	} else if len(missing) > 0 {
+		// An unpublished, develop-only dependency has no registry release to fall
+		// back to, so a missing checkout (or the wrong depot) surfaces as "not found
+		// in any registry" — which points the wrong way. Say where we looked.
+		var notes []string
+		for _, mi := range missing {
+			name := s.missingName(mi, m, bl)
+			notes = append(notes, fmt.Sprintf("%s is enrolled for development but %s", name, s.missingWhere(mi, name)))
+		}
+		sort.Strings(notes)
+		err = fmt.Errorf("%w\n  note: %s\n  Run 'cosm develop <name>' to restore a checkout, or check that --depot/$COSM_DEPOT name the depot you expect",
+			err, strings.Join(notes, "\n  note: "))
 	}
 	return m, bl, warns, err
 }
@@ -125,32 +137,49 @@ func (s *Service) developAdvisories(projectDir string, bl types.BuildList, missi
 		}
 	}
 	for _, mi := range missing {
-		name := mi.Entry.Name
-		if name == "" {
-			if e, ok := bl.Dependencies[mi.Key]; ok {
-				name = e.Name
-			}
-		}
-		if name == "" {
-			name = mi.Key
-		}
-		// Say exactly where we looked: the usual cause of a "missing" checkout is
-		// running against a different depot than the one holding it.
-		where := fmt.Sprintf("is not in the develop workspace of depot %s", s.D.Root)
-		if mi.InWS {
-			where = fmt.Sprintf("has no checkout at %s (depot %s)", s.D.DevUnit(mi.Entry.Name, mi.Entry.Major), s.D.Root)
-		} else if _, major, err := semver.SplitUnitKey(mi.Key); err == nil && name != mi.Key {
-			where = fmt.Sprintf("is not in the develop workspace of depot %s (expected at %s)", s.D.Root, s.D.DevUnit(name, major))
-		}
+		name := s.missingName(mi, nil, bl)
 		warns = append(warns, resolve.Warning{
 			Code: "W_DEVELOP_MISSING",
 			Message: fmt.Sprintf("%s is enrolled for development but %s; using the registry version. "+
 				"Run 'cosm develop %s' to restore it, or check that --depot/$COSM_DEPOT name the depot you expect",
-				name, where, name),
+				name, s.missingWhere(mi, name), name),
 		})
 	}
 	sort.Slice(warns, func(i, j int) bool { return warns[i].Message < warns[j].Message })
 	return warns
+}
+
+// missingName finds a readable name for an enrolled unit whose checkout is gone:
+// from the workspace entry, the build list, or the project's own declarations.
+func (s *Service) missingName(mi develop.Missing, m *types.Manifest, bl types.BuildList) string {
+	if mi.Entry.Name != "" {
+		return mi.Entry.Name
+	}
+	if e, ok := bl.Dependencies[mi.Key]; ok && e.Name != "" {
+		return e.Name
+	}
+	if m != nil {
+		if d, ok := m.Deps[mi.Key]; ok {
+			return d.Name
+		}
+		if d, ok := m.TestDeps[mi.Key]; ok {
+			return d.Name
+		}
+	}
+	return mi.Key
+}
+
+// missingWhere says exactly where cosm looked for a missing develop checkout. The
+// usual cause of a "missing" checkout is running against a different depot than
+// the one holding it, so the depot and the expected path are always named.
+func (s *Service) missingWhere(mi develop.Missing, name string) string {
+	if mi.InWS {
+		return fmt.Sprintf("has no checkout at %s (depot %s)", s.D.DevUnit(mi.Entry.Name, mi.Entry.Major), s.D.Root)
+	}
+	if _, major, err := semver.SplitUnitKey(mi.Key); err == nil && name != mi.Key {
+		return fmt.Sprintf("is not in the develop workspace of depot %s (expected at %s)", s.D.Root, s.D.DevUnit(name, major))
+	}
+	return fmt.Sprintf("is not in the develop workspace of depot %s", s.D.Root)
 }
 
 // RegistryChooser is called when a package is found in multiple registries.

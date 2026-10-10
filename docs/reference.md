@@ -95,6 +95,8 @@ isn't developing, and a unit this project is enrolled for whose checkout is miss
 the same advisories (to stderr), so all five agree on what you're building against.
 The missing-checkout warning names the depot and path it actually checked, since the
 usual cause is running against a different depot than the one holding the checkout.
+For an unpublished dependency there is no registry release to fall back to, so the
+same detail is attached to the resolution error instead.
 It also lists any `cosm.json` keys cosm doesn't use (they are preserved on every
 rewrite) and points out likely misspellings such as `licence` for `license`.
 - `--hash` — print only a stable digest of the resolved dependencies, for scripts and
