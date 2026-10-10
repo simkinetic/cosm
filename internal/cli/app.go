@@ -539,6 +539,17 @@ func releaseCmd() *cobra.Command {
 			if m, lerr := manifest.LoadManifestFromDir(cwd); lerr == nil {
 				fmt.Print(unknownKeysNote(m)) // kept in the release, but worth a look
 			}
+			if dry, _ := cmd.Flags().GetBool("dry-run"); dry {
+				plan, err := s.PlanRelease(cwd, opts)
+				if err != nil {
+					return err
+				}
+				fmt.Print(formatReleasePlan(plan))
+				if probs := plan.Problems(); len(probs) > 0 {
+					return &dryRunFailed{probs}
+				}
+				return nil
+			}
 			ver, err := s.Release(cwd, opts)
 			if err != nil {
 				return err
@@ -550,6 +561,7 @@ func releaseCmd() *cobra.Command {
 	cmd.Flags().Bool("patch", false, "increment patch")
 	cmd.Flags().Bool("minor", false, "increment minor")
 	cmd.Flags().Bool("major", false, "increment major")
+	cmd.Flags().Bool("dry-run", false, "run the preflight and show exactly what would be committed, tagged, pushed, and registered; change nothing")
 	return cmd
 }
 

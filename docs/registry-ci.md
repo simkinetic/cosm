@@ -31,6 +31,26 @@ with the resolved commit + content-hash `tree`, and appending `versions.json`).
 Malformed tags (e.g. a tag whose `cosm.json` version doesn't match) are skipped
 with a warning, not treated as fatal.
 
+## `cosm registry check`
+
+```sh
+cosm registry check myreg
+# Checked every version: 57 versions of 21 packages in myreg (local clones).
+#   FAIL  kinetic-rte v0.1.0 (myreg): requires cmaps-macro v0.1.0, which is in no registry (registered: v0.2.0)
+# error: 1 of 57 registered versions don't resolve within the registries
+```
+
+Confirms that every registered version resolves inside the registries — each
+declared dependency minimum is registered, and the version's whole closure resolves
+from registries alone — and exits non-zero otherwise. That catches the state a
+consumer would hit: a version still requiring a dependency version that was never
+registered, or has since been removed. `--latest` checks only the newest version of
+each major line. It is read-only.
+
+It checks against the registries in the depot, so **clone every registry the
+packages depend on**, not just this one; otherwise a dependency registered elsewhere
+reads as missing.
+
 ## Sample GitHub Actions workflow
 
 Drop this into the **registry repository** as `.github/workflows/sync.yml`. It
@@ -53,11 +73,9 @@ jobs:
     steps:
       - name: Install cosm
         run: |
-          # download the cosm binary for linux-amd64 from your release, e.g.:
-          curl -sSL "$COSM_DOWNLOAD_URL" -o /usr/local/bin/cosm
+          curl -fsSL -o /usr/local/bin/cosm \
+            https://github.com/simkinetic/cosm/releases/latest/download/cosm-linux-amd64
           chmod +x /usr/local/bin/cosm
-        env:
-          COSM_DOWNLOAD_URL: ${{ vars.COSM_DOWNLOAD_URL }}
 
       - name: Configure git
         run: |
@@ -76,6 +94,13 @@ jobs:
           # The registry name is read from its registry.json:
           name="$(basename "$GITHUB_REPOSITORY")"
           cosm registry sync "$name"
+
+      - name: Check every version resolves
+        run: |
+          export COSM_DEPOT="$RUNNER_TEMP/.cosm"
+          # Clone any other registry the packages depend on first, e.g.:
+          #   cosm registry clone https://github.com/<org>/<other-registry>.git
+          cosm registry check
 ```
 
 Notes:

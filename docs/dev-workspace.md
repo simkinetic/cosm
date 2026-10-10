@@ -29,6 +29,18 @@ Always confirm before running (each time, never silently):
 Example ask: "Heads up — `cosm release --patch` will tag **v0.2.1** and push the
 release. This is a cosm command that publishes, so it needs your approval. Run it?"
 
+Two related commands are **read-only, so run them freely**:
+
+- `cosm release --dry-run` (with the same version arguments) runs the release
+  preflight and prints exactly what the release would do: every check, the commit,
+  the tag, what is pushed to which remote, and the registry entry it leads to. It
+  changes nothing. **Run it before asking for approval and include its output in
+  your ask**, so the user approves a concrete plan. If it reports problems, fix them
+  first — a dependency minimum that isn't in any registry, a dirty tree, a missing
+  `origin` — rather than asking to release something that would be refused.
+- `cosm registry check [<registry>]` confirms every registered version resolves
+  within the registries, and names the ones that don't.
+
 ---
 
 ## What you may do freely

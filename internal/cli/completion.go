@@ -60,7 +60,7 @@ func wireCompletions(root *cobra.Command) {
 		for _, c := range reg.Commands() {
 			rsub[c.Name()] = c
 		}
-		for _, n := range []string{"status", "rm", "delete", "sync", "add"} {
+		for _, n := range []string{"status", "rm", "delete", "sync", "add", "check"} {
 			if c := rsub[n]; c != nil {
 				c.ValidArgsFunction = completeRegistriesFirst
 			}

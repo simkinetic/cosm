@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"cosm/internal/errs"
+	"cosm/internal/service"
 	"cosm/internal/types"
 )
 
@@ -24,8 +25,61 @@ func registryCmd() *cobra.Command {
 	cmd.AddCommand(
 		registryInitCmd(), registryCloneCmd(), registryAddCmd(),
 		registryRmCmd(), registryStatusCmd(), registryDeleteCmd(),
-		registrySyncCmd(),
+		registrySyncCmd(), registryCheckCmd(),
 	)
+	return cmd
+}
+
+func registryCheckCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "check [name]",
+		Short: "Check that every registered version's dependencies resolve within the registries",
+		Long: "Check every registered version (of one registry, or of all of them): each declared\n" +
+			"dependency minimum must be registered, and the version's whole dependency closure\n" +
+			"must resolve from the registries alone — exactly what a consumer needs. Reads the\n" +
+			"local clones as they are; run 'cosm update' first to check the latest. Exits\n" +
+			"non-zero when anything fails, so it can gate a registry's CI.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := newService()
+			if err != nil {
+				return err
+			}
+			name := ""
+			if len(args) == 1 {
+				name = args[0]
+			}
+			latest, _ := cmd.Flags().GetBool("latest")
+			res, err := s.CheckRegistries(name, latest)
+			if err != nil {
+				return err
+			}
+			scope := "every version"
+			if latest {
+				scope = "the latest version of each major line"
+			}
+			fmt.Printf("Checked %s: %d versions of %d packages in %s (local clones).\n",
+				scope, res.Versions, res.Packages, strings.Join(res.Registries, ", "))
+			for _, p := range res.Problems {
+				v := p.Version
+				if v != "" {
+					v = " " + v
+				}
+				fmt.Printf("  FAIL  %s%s (%s): %v\n", p.Package, v, p.Registry, p.Err)
+			}
+			if len(res.Problems) == 0 {
+				fmt.Println("All resolve.")
+				return nil
+			}
+			bad := map[string]bool{}
+			for _, p := range res.Problems {
+				bad[p.Registry+"\x00"+p.Package+"\x00"+p.Version] = true
+			}
+			return service.KindError(errs.ErrPackageNotFound,
+				fmt.Sprintf("%d of %d registered versions don't resolve within the registries", len(bad), res.Versions))
+		},
+	}
+	cmd.Flags().Bool("latest", false, "check only the newest version of each package's major line")
 	return cmd
 }
 

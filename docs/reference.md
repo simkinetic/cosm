@@ -151,11 +151,35 @@ using the MVS downgrade cascade: any dependency that pins it higher is downgrade
 to its highest still-compatible version (each such change is reported); a
 genuinely unsatisfiable dependency is an error.
 
-**`cosm release [v<version>]`** — publish a release of the current package: require
-a clean, in-sync worktree, set the version in `cosm.json`, commit, tag, and push
-the branch + tag. It only touches the package's own git repo (registration is a
-separate step).
+**`cosm release [v<version>]`** — publish a release of the current package: set the
+version in `cosm.json`, commit, tag, and push the branch + tag. It only touches the
+package's own git repo (registration is a separate step: `cosm registry add`, or the
+registry's scheduled sync).
+
+It first runs a **preflight**, and refuses — changing nothing — if any check fails.
+Every check runs, so one attempt lists every problem:
+- the worktree is clean, and HEAD is on a branch;
+- the new tag is free, locally and on origin;
+- an `origin` remote exists, is reachable, and the branch isn't behind it. (Pushing is
+  the last step; checking first means a missing remote can't leave a version commit
+  and tag behind locally);
+- every declared dependency minimum — `deps` and `testDeps` — is in a registry, and
+  the whole dependency closure resolves **from the registries alone**. Develop
+  checkouts and `--source` never count here: consumers resolve the release from
+  registries, so that is what must work. A missing minimum is reported with the
+  versions that are published and the command to move to one. On a miss, the local
+  registry clones are pulled once (read-only) first, unless `COSM_OFFLINE` is set.
+
+It also warns, without refusing, about dependencies this project builds against a
+develop checkout: the release resolves them from the registries instead, so what you
+tested may not be what consumers get.
 - `--patch` / `--minor` / `--major` — bump instead of naming a version.
+- `--dry-run` — run the preflight and show exactly what would happen: each check, the
+  commit, the tag, the branch and tag pushed to origin (with its URL), and the
+  registry entry that registering the tag will write (name, version, dependency
+  minimums, build system, license, and which registries already list the package).
+  Changes nothing. Exits non-zero when the release would be refused, so it can gate
+  CI, and its output is a complete summary to approve a release from.
 
 ### Build & run
 
@@ -299,6 +323,16 @@ version) from a registry.
 **`cosm registry sync <name>`** — scan every registered package's remote for new
 semver tags and register any that are missing (one atomic commit + push). Intended
 to run server-side on a schedule; see [registry CI](registry-ci.md).
+
+**`cosm registry check [name]`** — confirm that every registered version (of one
+registry, or of all of them) resolves inside the registries: each declared dependency
+minimum is registered, and the version's whole closure resolves from registries
+alone — what a consumer needs. Reports every failing version with what it requires
+and what is registered instead, and exits non-zero if any fails, so it can gate a
+registry's CI. Reads the local clones as they are; run `cosm update` first to check
+the latest. Read-only.
+- `--latest` — check only the newest version of each package's major line, to skip
+  superseded versions you don't intend to fix.
 
 **`cosm update [registry]`** — sync registries with their remotes (a read-only
 `git pull`). With no argument it updates every registry; with a name, just that

@@ -934,9 +934,24 @@ a spawned subshell is one option, not the only one.
   wrapper over `cosm env`; not a bash-only rcfile hack, and not the only entry point.
 
 ### 12.4 Release
-- `cosm release [v<version>|--patch|--minor|--major] [--registry <r>]` — require
-  clean worktree + in-sync origin; bump `cosm.json`; commit; tag; push branch+tag.
-  Rejects an existing/lesser version.
+- `cosm release [v<version>|--patch|--minor|--major] [--dry-run]` — bump `cosm.json`;
+  commit; tag; push branch+tag. Rejects an existing/lesser version.
+- **Preflight.** Before changing anything, release plans itself (`PlanRelease`) and
+  runs every check, collecting all failures rather than stopping at the first: clean
+  worktree; HEAD on a branch; the tag free locally *and* on origin; an `origin` remote
+  that exists, is reachable, and that the branch isn't behind; every declared `deps`
+  and `testDeps` minimum present in a registry; and the whole closure resolving
+  **from the registries alone** (`resolve.NoDev`: no develop overlay, no `--source`),
+  because that is how consumers resolve the release. A miss pulls the registry clones
+  once (read-only, unless `COSM_OFFLINE`) before it counts. Any failure refuses the
+  release with every problem listed; the error unwraps to each problem's kind, so the
+  exit code is that of the most specific. The remote is checked up front because
+  pushing is the last step: a missing remote must not leave a version commit and tag
+  behind locally. Dependencies the project builds against a develop checkout produce
+  a warning, not a failure: the release resolves them from registries instead.
+- `--dry-run` prints the plan — each check, the commit, the tag, what is pushed to
+  which origin URL, and the registry entry registering the tag will write — and
+  changes nothing. It exits non-zero when the release would be refused.
 
 ### 12.5 Registry
 - `cosm registry init <name> <giturl>` (empty remote), `clone <giturl>`,
@@ -949,6 +964,12 @@ a spawned subshell is one option, not the only one.
   §12.1.)
 - `registry add` clones/mirrors the package, records `specs.json` (commit + content
   hash) for each new tag, and commits atomically. **No push-on-read anywhere.**
+- `cosm registry check [<name>] [--latest]` — read-only consistency check: for every
+  registered version (or the newest per major line), each declared dependency minimum
+  must be registered and the version's closure must resolve from registries alone; a
+  `specs.json` whose uuid disagrees with the index is an integrity failure. Reports
+  every failing version and exits non-zero, for registry CI. It checks the depot's
+  local registry clones, so a registry depending on another needs both cloned.
 - `cosm publish [--registry <r>] [--platform …] [--toolchain …] [--config …]` — build
   the current package for the target(s), upload each artifact to the store, and record
   its `binaries[]` metadata (buildKey + hash + descriptor) into a `binary`/`mixed`

@@ -21,72 +21,41 @@ type ReleaseOpts struct {
 	Major   bool
 }
 
-// Release bumps cosm.json, commits, tags, and pushes branch + tag (§12.4).
+// Release bumps cosm.json, commits, tags, and pushes branch + tag (§12.4). It
+// runs the full preflight first (PlanRelease) and refuses on any problem, listing
+// all of them, before anything is changed.
 func (s *Service) Release(projectDir string, opts ReleaseOpts) (string, error) {
-	m, err := manifest.LoadManifestFromDir(projectDir)
+	p, err := s.PlanRelease(projectDir, opts)
 	if err != nil {
 		return "", err
 	}
-	newVer, err := nextVersion(m.Version, opts)
-	if err != nil {
-		return "", err
-	}
-	if err := semver.ValidateExact(newVer); err != nil {
-		return "", fmt.Errorf("%w: %v", errs.ErrUsage, err)
-	}
-	if semver.Compare(newVer, m.Version) < 0 {
-		return "", fmt.Errorf("%w: new version %s is below current %s", errs.ErrUsage, newVer, m.Version)
+	switch probs := p.Problems(); len(probs) {
+	case 0:
+	case 1:
+		return "", probs[0]
+	default:
+		return "", &PreflightError{Problems: probs}
 	}
 
-	// Clean worktree required.
-	status, err := s.Git.StatusPorcelain(projectDir)
-	if err != nil {
-		return "", err
-	}
-	if status != "" {
-		return "", fmt.Errorf("%w: commit or stash changes before releasing", errs.ErrDirtyWorktree)
-	}
-	// Tag must not already exist.
-	tags, err := s.Git.ListTags(projectDir)
-	if err != nil {
-		return "", err
-	}
-	for _, t := range tags {
-		if t == newVer {
-			return "", fmt.Errorf("%w: tag %s exists", errs.ErrVersionExists, newVer)
-		}
-	}
-	branch, err := s.Git.CurrentBranch(projectDir)
-	if err != nil {
-		return "", err
-	}
-	// In-sync with origin (best-effort: only if an upstream exists).
-	if err := s.Git.Fetch(projectDir, "origin"); err == nil {
-		if behind, berr := s.Git.BehindCount(projectDir, branch); berr == nil && behind > 0 {
-			return "", fmt.Errorf("%w: pull %d commits from origin/%s first", errs.ErrNotInSync, behind, branch)
-		}
-	}
-
-	m.Version = newVer
-	if err := manifest.SaveManifest(filepath.Join(projectDir, "cosm.json"), m); err != nil {
+	if err := manifest.SaveManifest(filepath.Join(projectDir, "cosm.json"), p.Released); err != nil {
 		return "", err
 	}
 	if err := s.Git.Add(projectDir, "cosm.json"); err != nil {
 		return "", err
 	}
-	if err := s.Git.Commit(projectDir, "Release "+newVer); err != nil {
+	if err := s.Git.Commit(projectDir, "Release "+p.To); err != nil {
 		return "", err
 	}
-	if err := s.Git.Tag(projectDir, newVer); err != nil {
+	if err := s.Git.Tag(projectDir, p.To); err != nil {
 		return "", err
 	}
-	if err := s.Git.Push(projectDir, branch); err != nil {
+	if err := s.Git.Push(projectDir, p.Branch); err != nil {
 		return "", err
 	}
-	if err := s.Git.Push(projectDir, newVer); err != nil {
+	if err := s.Git.Push(projectDir, p.To); err != nil {
 		return "", err
 	}
-	return newVer, nil
+	return p.To, nil
 }
 
 func nextVersion(current string, opts ReleaseOpts) (string, error) {
