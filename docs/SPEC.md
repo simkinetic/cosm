@@ -801,12 +801,16 @@ Explicit, idempotent. Creates `$COSM_DEPOT` structure (§5), writes `config.json
 and prints the `export COSM_DEPOT=…` line for the user to add to their profile.
 **Does not silently edit shell profiles** (the prototype's `.zprofile` mutation is
 removed). It also maintains the develop-workspace agent guide at `dev/CLAUDE.md`
-(§12.7): written when absent, and **refreshed when cosm ships a newer guide and the
-on-disk copy is byte-identical to what cosm last wrote** — tracked by `devGuideSha`
-in `config.json` (§11.3). A guide the user has edited is never overwritten; setup
-reports the divergence and points at `--force-guide`, which replaces it on request.
-Without this, every depot created before a guide change keeps the stale instructions
-forever, which is exactly the copy agents read.
+(§12.7): written when absent, and **updated when the on-disk copy is byte-identical to
+an earlier shipped version**. Each cosm carries the sha256 of every earlier guide text,
+and the decision is made from the file alone: equal to this cosm's guide → leave it;
+equal to an earlier one → replace it; anything else → keep it and point at
+`--force-guide`. "Anything else" covers both a user's edits and a guide written by a
+*newer* cosm, which an older binary cannot recognise — so no binary ever downgrades
+the guide. Without updates, every depot created before a guide change would keep the
+stale instructions forever, and that is exactly the copy agents read. The repository
+enforces the history: a test fails when the guide changes until the previous text's
+hash is recorded.
 
 setup records the depot as the **global default** (the XDG pointer, §11.2) only when
 no depot was named for the invocation — neither `--depot` nor `$COSM_DEPOT` — or when
@@ -824,10 +828,12 @@ else default `~/.cosm`. A missing/incomplete depot triggers a clear
 ```json
 { "schemaVersion": 1, "depot": "/Users/ekke/.cosm",
   "defaultShell": "bash", "templatesRepo": "https://github.com/simkinetic/cosm-templates.git",
-  "artifactStore": "/Users/ekke/.cosm/store", "devGuideSha": "c456…" }
+  "artifactStore": "/Users/ekke/.cosm/store" }
 ```
-`devGuideSha` is the checksum of the agent guide cosm last wrote to `dev/CLAUDE.md`
-(§11.1); it is what lets setup distinguish an untouched guide from an edited one.
+`devGuideSha` is legacy. cosm v0.1.4–v0.1.5 recorded the hash of the guide they
+wrote and replaced any guide matching it with their own text, which downgraded a
+newer guide; newer cosm decides from the guide text alone (§11.1) and removes the
+field.
 
 ---
 

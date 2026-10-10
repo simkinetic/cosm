@@ -24,9 +24,10 @@ type Config struct {
 	DefaultShell  string `json:"defaultShell,omitempty"`
 	TemplatesRepo string `json:"templatesRepo,omitempty"`
 	ArtifactStore string `json:"artifactStore,omitempty"` // default store dir for `cosm publish`
-	// DevGuideSHA is the sha256 of the dev-workspace agent guide cosm last wrote to
-	// dev/CLAUDE.md. It lets `cosm setup` refresh an untouched guide when cosm ships
-	// a newer one, while leaving a user-edited guide alone.
+	// DevGuideSHA is legacy: cosm v0.1.4–v0.1.5 recorded the hash of the agent guide
+	// they wrote here. Newer cosm decides from the guide's own text instead (see
+	// cli.shippedGuideSHAs) and clears it, so those older binaries can't downgrade
+	// a newer guide.
 	DevGuideSHA string `json:"devGuideSha,omitempty"`
 }
 

@@ -56,9 +56,10 @@ the `export COSM_DEPOT=…` line and a shell-aware **tab-completion** hint to ad
 your profile (it never edits your profile itself; see [Shell completion](#shell-completion)).
 Also keeps the [develop-workspace agent guide](dev-workspace.md) at
 `$COSM_DEPOT/dev/CLAUDE.md` current: it writes the guide when none is there, and
-**refreshes it when a newer cosm ships one and your copy is untouched** (cosm records
-the checksum of what it last wrote). If you edited the guide, it is never overwritten
-— setup says so and points at `--force-guide`.
+**updates it when it is an earlier version of the guide** — cosm knows the text of
+every guide it has ever shipped. Anything else is left alone: a guide you edited, and
+equally one written by a *newer* cosm, so running an older cosm never rolls the guide
+back. setup says when it keeps a guide and points at `--force-guide`.
 - `--store <dir>` — persist a default artifact store for `cosm publish`.
 - `--force-guide` — overwrite `dev/CLAUDE.md` with this cosm's guide, discarding local
   edits. Use it to pull in a new guide after you've customised yours.
@@ -433,11 +434,11 @@ list is `<registry>/<SHARD>/<pkg>/versions.json`.
 ### `config.json` — depot config (`$COSM_DEPOT/config.json`)
 
 ```json
-{ "schemaVersion": 1, "depot": "/Users/you/.cosm", "defaultShell": "bash", "artifactStore": "/Users/you/artifacts",
-  "devGuideSha": "c456…" }
+{ "schemaVersion": 1, "depot": "/Users/you/.cosm", "defaultShell": "bash", "artifactStore": "/Users/you/artifacts" }
 ```
-`devGuideSha` is the checksum of the agent guide cosm last wrote to `dev/CLAUDE.md`
-(see `cosm setup`).
+`devGuideSha` is legacy: cosm v0.1.4 and v0.1.5 recorded the checksum of the agent
+guide they wrote there. Newer cosm removes it, because those versions replaced any
+guide matching it with their own — downgrading a newer one.
 
 ### Local/develop state
 
