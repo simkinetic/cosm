@@ -103,8 +103,8 @@ type ScaffoldResponse struct {
 // (regular deps + testDeps) with install prefixes, so the extension can configure
 // the project's tests against them.
 type TestRequest struct {
-	Project  PackageCtx      `json:"project"`
-	Platform types.Platform  `json:"platform"`
+	Project   PackageCtx      `json:"project"`
+	Platform  types.Platform  `json:"platform"`
 	Deps      []DepCtx        `json:"deps"`
 	Config    json.RawMessage `json:"config,omitempty"` // same shape as BuildRequest.Config
 	Jobs      int             `json:"jobs,omitempty"`

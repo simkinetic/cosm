@@ -60,8 +60,8 @@ type Depot struct {
 func New(root string) Depot { return Depot{Root: root} }
 
 // Path helpers (§5).
-func (d Depot) Registries() string      { return filepath.Join(d.Root, "registries") }
-func (d Depot) RegistriesFile() string  { return filepath.Join(d.Registries(), "registries.json") }
+func (d Depot) Registries() string     { return filepath.Join(d.Root, "registries") }
+func (d Depot) RegistriesFile() string { return filepath.Join(d.Registries(), "registries.json") }
 func (d Depot) Registry(name string) string {
 	return filepath.Join(d.Registries(), name)
 }
@@ -75,9 +75,9 @@ func (d Depot) Build(uuid, commit, key string) string {
 func (d Depot) BuildlistCache(uuid, commit string) string {
 	return filepath.Join(d.Root, "cache", "buildlists", uuid, commit+".json")
 }
-func (d Depot) Extensions() string     { return filepath.Join(d.Root, "extensions") }
-func (d Depot) Dev() string            { return filepath.Join(d.Root, "dev") }
-func (d Depot) WorkspaceFile() string  { return filepath.Join(d.Dev(), "workspace.json") }
+func (d Depot) Extensions() string    { return filepath.Join(d.Root, "extensions") }
+func (d Depot) Dev() string           { return filepath.Join(d.Root, "dev") }
+func (d Depot) WorkspaceFile() string { return filepath.Join(d.Dev(), "workspace.json") }
 func (d Depot) DevUnit(name string, major int) string {
 	return filepath.Join(d.Dev(), fmt.Sprintf("%s@v%d", name, major))
 }

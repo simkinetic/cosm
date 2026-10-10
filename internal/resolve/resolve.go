@@ -117,12 +117,12 @@ func resolve(root *types.Manifest, loader SpecLoader, dev DevOverlay, includeTes
 		}
 	}
 
-	selected := map[string]string{}       // key -> chosen (max) version, non-dev
-	specsAt := map[string]types.Specs{}    // key\x00version -> specs
-	seen := map[string]bool{}              // key\x00version already expanded
-	devUnits := map[string]devInfo{}       // key -> dev override
-	devExpanded := map[string]bool{}       // key -> dev deps already pushed
-	requested := map[string][]string{}     // key -> every requested version (for v0 warning)
+	selected := map[string]string{}     // key -> chosen (max) version, non-dev
+	specsAt := map[string]types.Specs{} // key\x00version -> specs
+	seen := map[string]bool{}           // key\x00version already expanded
+	devUnits := map[string]devInfo{}    // key -> dev override
+	devExpanded := map[string]bool{}    // key -> dev deps already pushed
+	requested := map[string][]string{}  // key -> every requested version (for v0 warning)
 
 	for len(work) > 0 {
 		it := work[len(work)-1]

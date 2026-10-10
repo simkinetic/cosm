@@ -251,7 +251,6 @@ func testCmd() *cobra.Command {
 	return cmd
 }
 
-
 func shellCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "shell",

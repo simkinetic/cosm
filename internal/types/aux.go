@@ -18,8 +18,8 @@ type WorkspaceEntry struct {
 	Major   int    `json:"major"`
 	GitURL  string `json:"giturl"`
 	Ref     string `json:"ref"`
-	RefKind string `json:"refKind"`       // "branch" | "tag"
-	Path    string `json:"path"`          // depot-relative
+	RefKind string `json:"refKind"`         // "branch" | "tag"
+	Path    string `json:"path"`            // depot-relative
 	Local   bool   `json:"local,omitempty"` // adopted from a local path (symlink); may be unpublished
 }
 
