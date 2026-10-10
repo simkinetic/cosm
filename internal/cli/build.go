@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -66,6 +67,16 @@ func buildFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("jobs", 0, "parallel build jobs (default: CPUs)")
 	cmd.Flags().BoolP("verbose", "v", false, "stream the extension's build/test output live and in full detail")
 	cmd.Flags().StringArrayP("source", "S", nil, "use this checkout for its package instead of the develop workspace (repeatable; for git worktrees)")
+}
+
+// sortedMapKeys returns a map's keys in sorted order.
+func sortedMapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // resolveOpts turns --source into resolve options and reports each redirect, so
@@ -174,10 +185,12 @@ func envCmd() *cobra.Command {
 			}
 			expand, _ := cmd.Flags().GetBool("expand")
 			sep := string(os.PathListSeparator)
-			for k, v := range resp.Env {
-				fmt.Printf("export %s=%q\n", k, v)
+			// Sorted, so the output is byte-identical across runs (scripts hash it).
+			for _, k := range sortedMapKeys(resp.Env) {
+				fmt.Printf("export %s=%q\n", k, resp.Env[k])
 			}
-			for k, vals := range resp.PrependPaths {
+			for _, k := range sortedMapKeys(resp.PrependPaths) {
+				vals := resp.PrependPaths[k]
 				if expand {
 					// Fully resolved value (cosm's paths prepended to the inherited
 					// var) — no unexpanded ${VAR}, for tools that parse the output.
@@ -235,10 +248,16 @@ func testCmd() *cobra.Command {
 				return err
 			}
 			var deps []ext.DepCtx
-			for key, e := range bl.Dependencies {
-				b := built[key]
+			for _, key := range materialize.SortedKeys(bl) {
+				e, b := bl.Dependencies[key], built[key]
 				deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Prefix: b.Prefix, Descriptor: b.Descriptor})
 			}
+			// Tell the test runner how much parallelism it may use, so a harness can
+			// size its thread pool instead of guessing (and oversubscribing a big
+			// box). Inherited by the extension, the runner, and each test process.
+			m.Run.Env = append(m.Run.Env,
+				fmt.Sprintf("COSM_TEST_JOBS=%d", m.Opt.Jobs),
+				fmt.Sprintf("COSM_TEST_CPUS=%d", runtime.NumCPU()))
 			resp, err := m.Run.Test(root.Build, ext.TestRequest{
 				Project:  ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: cwd, Provides: root.Provides},
 				Platform: m.Opt.Platform,

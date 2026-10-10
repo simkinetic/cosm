@@ -99,6 +99,22 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
   The project isn't releasable until the sibling is published (`cosm release` +
   `cosm registry add`), which is a shared-resource step — **ask first** (see the rule
   above).
+- **Checking something in a clean, throwaway depot** (e.g. that a released version
+  builds from the registries alone): point cosm at it for those commands only, and
+  don't pass `--set-default`:
+
+  ```sh
+  export COSM_DEPOT=$(mktemp -d)/depot && cosm setup   # your default depot is untouched
+  ```
+
+  `cosm setup` changes the global default only when no depot was named. If a warning
+  says a develop checkout is missing, read the depot path it prints — the usual cause
+  is running against a different depot than you meant. `cosm --version` shows the
+  commit and path of the binary actually running, in case an older `cosm` shadows it.
+- **Detecting dependency changes** (cache keys, "did anything below me move?"): use
+  `cosm status --hash` — a stable digest of the resolved dependencies that also moves
+  when a co-developed checkout is edited in place. Add `--tests` to cover test-only
+  dependencies. Don't hash `cosm.json` alone; it misses changes further down.
 - **Working in a git worktree (parallel agents).** This workspace holds exactly one
   checkout per package, at `<name>@vN/`. If you work in a separate git worktree of a
   package, a plain `cosm build`/`cosm test` from another project still resolves that

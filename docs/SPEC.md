@@ -110,6 +110,7 @@ prototype's `Project.json`.)
   "authors": [
     { "name": "René Hiemstra", "email": "rene.r.hiemstra@gmail.com" }
   ],
+  "license": "MIT",
   "build": "cmake",
   "provides": ["linalg@v0"],
   "deps": {
@@ -125,6 +126,13 @@ prototype's `Project.json`.)
 ```
 
 Field notes:
+- `license` (string, optional): the package's license, ideally an SPDX expression.
+  Copied into the registry specs at registration; otherwise opaque to the core.
+- **Other top-level keys** are preserved verbatim by every command that rewrites
+  `cosm.json`, written after the modelled keys in sorted order. Keys are classified
+  case-insensitively, matching how they decode (`"Version"` *is* the version), so a
+  case variant can never survive as a stale duplicate. `status` and `release` list
+  unused keys and flag near-misses of modelled ones (e.g. `licence`).
 - `build` (string): the **extension id** that owns this package's build & activation.
   (Named `build` rather than `language` because it selects a build system; an
   extension MAY handle multiple languages.)
@@ -353,6 +361,16 @@ canonical, sorted walk of file paths + modes + contents (git metadata excluded).
 The exact serialization MUST be specified once and frozen (e.g. reuse `git archive`
 + streaming sha256, or an explicit `path\0mode\0len\0bytes` framing). Recorded at
 registration; verified on every materialization (§8.1).
+
+This integrity hash (`Tree`) is frozen: every registered `tree` depends on it, so it
+covers the whole exported tree, including a committed `.cosm/` (a mistake, but one
+already present in some released packages). A **working checkout** hashed as a
+build-key input — the project itself, or a develop/`--source` override — uses a
+separate `Live` hash: `Tree` minus a top-level `.cosm/`. That directory is cosm's own
+project-local state (env symlinks, enrollment, its `.gitignore`), never source; and it
+must be excluded, because the `.cosm/env` link to the project's own build prefix is
+derived from this hash — including it made every activation re-point the link, change
+the hash, and force a rebuild.
 
 ### 6.5 Moved-tag / tamper detection
 When `registry update` re-observes a tag whose commit differs from the recorded
@@ -790,6 +808,12 @@ reports the divergence and points at `--force-guide`, which replaces it on reque
 Without this, every depot created before a guide change keeps the stale instructions
 forever, which is exactly the copy agents read.
 
+setup records the depot as the **global default** (the XDG pointer, §11.2) only when
+no depot was named for the invocation — neither `--depot` nor `$COSM_DEPOT` — or when
+`--set-default` is given. A depot named explicitly is typically a throwaway (a
+clean-depot verification); letting its setup repoint the default would make every
+later command silently run against it. When the default is left alone, setup says so.
+
 ### 11.2 Depot bootstrap
 On any command, if `$COSM_DEPOT` is unset it is resolved from (in order):
 `--depot` flag, `COSM_DEPOT` env, `config.json` at `${XDG_CONFIG_HOME:-~/.config}/cosm/`,
@@ -822,9 +846,15 @@ git-like; cobra or equivalent. Global flags on every command:
   `provides`/`ext` are folded into the manifest the core writes. If the extension is
   absent, the manifest is still written (with a note). Plain `init` (no `--build`)
   writes only `cosm.json`.
-- `cosm status` — resolves (offline) and prints the project, its direct deps (bold),
-  and the resolved build list with selected versions; flags v0 minor bumps and
-  develop-mode packages.
+- `cosm status [--tests] [--hash]` — resolves (offline) and prints the project, its
+  direct deps (bold), and the resolved build list with selected versions; flags v0
+  minor bumps and develop-mode packages, and lists `cosm.json` keys cosm doesn't use
+  (with likely-misspelling hints). `--hash` prints only a stable digest of the
+  resolved dependencies: per unit (sorted by key) its key, name, version, build
+  system, and content identity — the registered `tree` for a released version, or
+  `Live` (§6.4) of the checkout for a develop/`--source` override, whose version
+  string does not move when its content does. No machine-specific path enters it, and
+  the project's own sources are excluded. `--tests` includes `testDeps`.
 
 ### 12.2 Dependencies
 - `cosm add <name> [v<version>] [--registry <r>] [--major <n>] [--test] [--offline]` —
@@ -873,6 +903,9 @@ a spawned subshell is one option, not the only one.
   runner (e.g. `ctest`); `--cxxflags`/`--ldflags` add per-run compile/link flags (e.g.
   coverage instrumentation), applied to the test configure; `--keep-build` retains the
   test build tree and prints its path (so coverage tooling can read the test binary).
+  The extension (and so the runner and each test process) receives `COSM_TEST_JOBS`
+  (the `--jobs` value) and `COSM_TEST_CPUS` (CPUs available) so a test harness can
+  size its parallelism rather than oversubscribe; the policy stays the harness's.
 - `cosm run [--] <cmd> [args…]` — **primary execution primitive.** Build if needed,
   then exec `<cmd>` once with the assembled environment. Ephemeral, reproducible,
   works in any shell / CI / editor. E.g. `cosm run -- lua src/main.lua`,
@@ -881,7 +914,10 @@ a spawned subshell is one option, not the only one.
   for the user to load into their **own** shell (`eval "$(cosm env)"`) or feed other
   tools. By default, prepended path vars are emitted as `…:${VAR}` (correct under
   `eval`); `--expand` prints the fully-resolved value instead (no `${VAR}`), for tools
-  that parse rather than eval.
+  that parse rather than eval. Output is deterministic — variables sorted, and
+  path-list values assembled from dependencies in a fixed order — so identical inputs
+  give byte-identical output. An unchanged project is a cache hit (§6.4), and
+  `.cosm/env` links for units no longer in the build list are pruned.
 - `cosm shell` (alias `cosm activate`) — **opt-in** interactive convenience: launch
   the user's shell (detected; bash/zsh/fish-aware) with the environment applied via a
   generated shell-appropriate init and a `cosm>` prompt marker. Implemented as a thin

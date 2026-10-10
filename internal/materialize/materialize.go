@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -209,7 +210,7 @@ func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built,
 
 	tree := e.Tree
 	if e.Develop || tree == "" {
-		if tree, err = treehash.Tree(e.SourcePath); err != nil {
+		if tree, err = treehash.Live(e.SourcePath); err != nil {
 			return Built{}, false, err
 		}
 	}
@@ -339,17 +340,24 @@ func (m *Materializer) Activate(root *types.Manifest, projectDir string, bl type
 		return ext.ActivateResponse{}, fmt.Errorf("%w: project has no build system (set 'build' in cosm.json)", errs.ErrUsage)
 	}
 	ensureLocalGitignore(projectDir)
+	// Deterministic order: the extension joins these into path lists
+	// (CMAKE_PREFIX_PATH, LUA_PATH, ...), so map order would reshuffle the
+	// environment's values from run to run.
 	var deps []ext.DepCtx
-	for key, e := range bl.Dependencies {
-		b := built[key]
+	live := map[string]bool{}
+	for _, key := range SortedKeys(bl) {
+		e, b := bl.Dependencies[key], built[key]
+		live[envLinkName(e.Name, e.Major)] = true
 		deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version,
 			Prefix: stablePrefix(projectDir, e.Name, e.Major, b.Prefix), Descriptor: b.Descriptor})
 	}
 	if rootBuilt.Prefix != "" {
 		rmaj, _ := semver.Major(root.Version)
+		live[envLinkName(root.Name, rmaj)] = true
 		deps = append(deps, ext.DepCtx{Name: root.Name, UUID: root.UUID, Version: root.Version,
 			Prefix: stablePrefix(projectDir, root.Name, rmaj, rootBuilt.Prefix), Descriptor: rootBuilt.Descriptor})
 	}
+	pruneEnvLinks(projectDir, live)
 	return m.Run.Activate(root.Build, ext.ActivateRequest{
 		Project:  ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: projectDir, Provides: root.Provides},
 		Platform: m.Opt.Platform,
@@ -367,7 +375,7 @@ func stablePrefix(projectDir, name string, major int, realPrefix string) string 
 	if realPrefix == "" || projectDir == "" {
 		return realPrefix
 	}
-	link := filepath.Join(projectDir, ".cosm", "env", fmt.Sprintf("%s@v%d", name, major))
+	link := filepath.Join(projectDir, ".cosm", "env", envLinkName(name, major))
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		return realPrefix
 	}
@@ -379,6 +387,45 @@ func stablePrefix(projectDir, name string, major int, realPrefix string) string 
 		return realPrefix
 	}
 	return link
+}
+
+func envLinkName(name string, major int) string { return fmt.Sprintf("%s@v%d", name, major) }
+
+// pruneEnvLinks removes `.cosm/env` links for units no longer in the build list, so
+// a dropped dependency doesn't linger as a dangling path. Only symlinks are
+// removed; anything else a user put there is left alone.
+func pruneEnvLinks(projectDir string, live map[string]bool) {
+	if projectDir == "" {
+		return
+	}
+	dir := filepath.Join(projectDir, ".cosm", "env")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, de := range ents {
+		if live[de.Name()] || de.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, de.Name()))
+	}
+}
+
+// SortedKeys returns the build list's unit keys ordered by package name, then key,
+// so anything assembled from the build list is reproducible run to run.
+func SortedKeys(bl types.BuildList) []string {
+	keys := make([]string, 0, len(bl.Dependencies))
+	for k := range bl.Dependencies {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := bl.Dependencies[keys[i]], bl.Dependencies[keys[j]]
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
 }
 
 // ensureLocalGitignore keeps the project-local cosm state (env symlinks, develop

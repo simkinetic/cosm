@@ -134,10 +134,19 @@ func (s *Service) developAdvisories(projectDir string, bl types.BuildList, missi
 		if name == "" {
 			name = mi.Key
 		}
+		// Say exactly where we looked: the usual cause of a "missing" checkout is
+		// running against a different depot than the one holding it.
+		where := fmt.Sprintf("is not in the develop workspace of depot %s", s.D.Root)
+		if mi.InWS {
+			where = fmt.Sprintf("has no checkout at %s (depot %s)", s.D.DevUnit(mi.Entry.Name, mi.Entry.Major), s.D.Root)
+		} else if _, major, err := semver.SplitUnitKey(mi.Key); err == nil && name != mi.Key {
+			where = fmt.Sprintf("is not in the develop workspace of depot %s (expected at %s)", s.D.Root, s.D.DevUnit(name, major))
+		}
 		warns = append(warns, resolve.Warning{
 			Code: "W_DEVELOP_MISSING",
-			Message: fmt.Sprintf("%s is enrolled for development but its checkout is missing; using the registry version "+
-				"(run 'cosm develop %s' to restore it)", name, name),
+			Message: fmt.Sprintf("%s is enrolled for development but %s; using the registry version. "+
+				"Run 'cosm develop %s' to restore it, or check that --depot/$COSM_DEPOT name the depot you expect",
+				name, where, name),
 		})
 	}
 	sort.Slice(warns, func(i, j int) bool { return warns[i].Message < warns[j].Message })

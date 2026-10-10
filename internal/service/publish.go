@@ -107,7 +107,7 @@ func (s *Service) Publish(projectDir string, opts PublishOpts) (string, error) {
 	specs := types.Specs{
 		SchemaVersion: types.SchemaVersion,
 		Name:          m.Name, UUID: m.UUID, Version: m.Version,
-		Commit: commit, Tree: tree, Build: m.Build, Provides: m.Provides, Deps: m.Deps,
+		Commit: commit, Tree: tree, Build: m.Build, Provides: m.Provides, Deps: m.Deps, License: m.License,
 	}
 	binary := types.BinaryArtifact{
 		Platform:   platform,

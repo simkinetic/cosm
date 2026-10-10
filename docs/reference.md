@@ -25,12 +25,12 @@ Global flags (available on every command):
 | Flag | Meaning |
 |------|---------|
 | `--depot <path>` | Use a specific depot instead of the resolved default. |
-| `--version` | Print the version and exit (root command only). |
+| `--version` | Print the version, commit, commit time, and the path of the running binary, then exit (root command only). Flags a stale `cosm` earlier on `$PATH` that would shadow this one. |
 | `-h, --help` | Help for any command. |
 
 **Depot resolution** (where cosm keeps its state): `--depot` flag → `$COSM_DEPOT`
-env → the depot recorded in `${XDG_CONFIG_HOME:-~/.config}/cosm/config.json` →
-`~/.cosm`. Run `cosm setup` once to create it.
+env → the depot recorded in `${XDG_CONFIG_HOME:-~/.config}/cosm/config.json` (the
+*global default*) → `~/.cosm`. Run `cosm setup` once to create it.
 
 ## Exit codes
 
@@ -62,6 +62,18 @@ the checksum of what it last wrote). If you edited the guide, it is never overwr
 - `--store <dir>` — persist a default artifact store for `cosm publish`.
 - `--force-guide` — overwrite `dev/CLAUDE.md` with this cosm's guide, discarding local
   edits. Use it to pull in a new guide after you've customised yours.
+- `--set-default` — make this depot the global default even though it was named
+  explicitly.
+
+setup records the depot as the **global default only when you didn't name one**.
+With `--depot` or `$COSM_DEPOT` it leaves the default alone and says so, so a
+throwaway depot — a clean-depot verification, say — never becomes the depot every
+later command silently uses:
+
+```sh
+COSM_DEPOT=/tmp/verify cosm setup   # default unchanged
+cosm --depot ~/work/depot setup --set-default   # deliberately switch
+```
 
 ### Project
 
@@ -81,6 +93,19 @@ v0-minor-bump warnings. It also surfaces the two easy-to-miss develop states (se
 isn't developing, and a unit this project is enrolled for whose checkout is missing
 — both silently using the registry version. `build`, `test`, `run`, and `env` report
 the same advisories (to stderr), so all five agree on what you're building against.
+The missing-checkout warning names the depot and path it actually checked, since the
+usual cause is running against a different depot than the one holding the checkout.
+It also lists any `cosm.json` keys cosm doesn't use (they are preserved on every
+rewrite) and points out likely misspellings such as `licence` for `license`.
+- `--hash` — print only a stable digest of the resolved dependencies, for scripts and
+  caches: `$(cosm status --hash)`. It covers every unit's version, build system, and
+  content — the registered tree for a released version, or a fresh hash of the
+  checkout for a develop or `--source` override, so editing a co-developed dependency
+  in place changes it even though its version doesn't. It excludes the project's own
+  sources and any machine-specific path, so one resolution hashes identically on every
+  machine. Advisories go to stderr.
+- `--tests` — resolve with the project's test-only dependencies too (affects both the
+  listing and `--hash`).
 
 **`cosm add <name> [v<version>]`** — add a dependency. Looks the package up in the
 local registries (prompting if it is found in more than one registry, or spans
@@ -191,6 +216,11 @@ tests** (a vacuous-pass guardrail), and surfaces the captured output on failure.
   variables on the fresh test configure — fine for a one-off coverage run, but if you
   need them layered on top of your normal flags, keep the flags in your `CMakeLists`
   behind an `option()` instead.
+- The tests run with **`COSM_TEST_JOBS`** (the `--jobs` value; defaults to the CPU
+  count) and **`COSM_TEST_CPUS`** (CPUs available to this process) in their
+  environment, so a harness can size its thread pool instead of guessing — e.g. one
+  thread per test when the runner itself runs tests in parallel, or up to
+  `COSM_TEST_JOBS` when it runs them one at a time.
 - `-- <args>` — everything after `--` is forwarded to the underlying runner (e.g.
   `cosm test -- -R mytag --output-on-failure` → `ctest`).
 
@@ -200,6 +230,14 @@ with `eval "$(cosm env)"`. Paths point through **stable per-project symlinks**
 current content-addressed prefix on every activate — so a tool that caches this
 output (a CMake `build-test/` tree, say) keeps a valid `CMAKE_PREFIX_PATH` even after
 a develop dep's content, and therefore its prefix, changes, with no cache wipe.
+
+The output is **deterministic**: variables are sorted, and path-list values
+(`CMAKE_PREFIX_PATH`, `LUA_PATH`, …) list dependencies in a fixed order, so identical
+inputs give byte-identical output and a script can hash it. `env` builds whatever is
+missing first, but an unchanged project is a cache hit — cosm's own `.cosm/` state is
+never part of a project's content hash. Links for dependencies that have left the
+build list are pruned. (To detect dependency changes, `cosm status --hash` is the
+direct tool.)
 - `--expand` — print fully-resolved values (cosm's paths prepended to the inherited
   variable) instead of the `…:${VAR}` template, for tools that **parse** the output
   rather than `eval` it.
@@ -302,6 +340,7 @@ Committed to the package's git repo.
   "uuid": "66c27472-84bc-4dc4-b320-430f08b0b9fb",
   "version": "v0.1.0",
   "authors": [ { "name": "…", "email": "…" } ],
+  "license": "MIT",
   "build": "cmake",
   "provides": ["linalg@v0"],
   "deps": {
@@ -314,6 +353,8 @@ Committed to the package's git repo.
 }
 ```
 
+- `license` — the package's license, ideally an SPDX expression (`MIT`,
+  `Apache-2.0 OR MIT`). Recorded in the registry specs at registration.
 - `build` — the extension id that owns building/activation.
 - `provides` — module namespace(s) exposed, each `<namespace>@v<major>`. The major
   is part of the namespace so two majors of a package can be consumed at once (the
@@ -329,6 +370,12 @@ Committed to the package's git repo.
   specs**, so they are non-transitive: consumers of this package don't inherit
   them. A unit may appear in `deps` or `testDeps`, not both.
 - `ext` — extension-specific config, opaque to the core.
+
+Any **other top-level key is preserved**: commands that rewrite `cosm.json`
+(`release`, `upgrade`, `add`, …) keep it verbatim, after the keys above. cosm doesn't
+read it, so `cosm status` and `cosm release` list such keys and point out likely
+misspellings of real ones. Keys are matched case-insensitively, so `"Version"` is the
+version, not an extra key.
 
 ### `registry.json` — registry index
 
@@ -384,8 +431,11 @@ list is `<registry>/<SHARD>/<pkg>/versions.json`.
 ### `config.json` — depot config (`$COSM_DEPOT/config.json`)
 
 ```json
-{ "schemaVersion": 1, "depot": "/Users/you/.cosm", "defaultShell": "bash", "artifactStore": "/Users/you/artifacts" }
+{ "schemaVersion": 1, "depot": "/Users/you/.cosm", "defaultShell": "bash", "artifactStore": "/Users/you/artifacts",
+  "devGuideSha": "c456…" }
 ```
+`devGuideSha` is the checksum of the agent guide cosm last wrote to `dev/CLAUDE.md`
+(see `cosm setup`).
 
 ### Local/develop state
 
@@ -394,10 +444,17 @@ list is `<registry>/<SHARD>/<pkg>/versions.json`.
 - `<project>/.cosm/develop.json` — a project's enrollment: `{ "enrolled":
   ["<uuid>@v0", …] }`. Git-ignored; never committed.
 - `<project>/.cosm/env/<name>@v<major>` — a symlink to that dependency's current
-  install prefix, re-pointed on every `cosm env`/`build`/`run`. `cosm env` emits paths
-  through these so external tools survive a prefix change (see `cosm env`).
-- `<project>/.cosm/.gitignore` — written once (`*`), keeping all project-local cosm
-  state out of version control.
+  install prefix, re-pointed on every `cosm env`/`run`/`shell`; links for units no
+  longer in the build list are pruned. `cosm env` emits paths through these so
+  external tools survive a prefix change (see `cosm env`).
+- `<project>/.cosm/.gitignore` — `*`, written the first time cosm writes anything
+  into `.cosm/` (including `cosm develop`'s enrollment), keeping all project-local
+  cosm state out of version control.
+
+None of `.cosm/` is source: a working checkout's content hash (its build-key input)
+excludes the top-level `.cosm/`. The integrity hash recorded in registry specs is
+unchanged and still covers the whole exported tree, so a package that once committed
+a `.cosm/` keeps verifying — though it should drop it (`git rm -r --cached .cosm`).
 
 ---
 

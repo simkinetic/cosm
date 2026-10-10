@@ -7,6 +7,7 @@ package service
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cosm/internal/develop"
@@ -110,8 +111,40 @@ func TestDevelopAdvisories(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, warns, _ := s.Resolve(proj); !hasWarn(warns, "W_DEVELOP_MISSING") {
+	_, _, warns, _ := s.Resolve(proj)
+	if !hasWarn(warns, "W_DEVELOP_MISSING") {
 		t.Fatalf("expected W_DEVELOP_MISSING: %v", warns)
+	}
+	// The message must say which depot and path were checked: the usual cause is a
+	// different depot than the one holding the checkout, and "missing" alone hid it.
+	for _, w := range warns {
+		if w.Code != "W_DEVELOP_MISSING" {
+			continue
+		}
+		if !strings.Contains(w.Message, d.Root) || !strings.Contains(w.Message, d.DevUnit("p", 1)) {
+			t.Errorf("message should name depot %s and path %s: %q", d.Root, d.DevUnit("p", 1), w.Message)
+		}
+	}
+
+	// In the workspace, but its checkout directory is gone -> same detail.
+	if err := manifest.SaveWorkspace(d.WorkspaceFile(), &types.Workspace{
+		SchemaVersion: 1,
+		Entries:       []types.WorkspaceEntry{{Name: "p", UUID: "u-p", Major: 1, Path: "dev/p@v1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, warns, _ = s.Resolve(proj)
+	found := false
+	for _, w := range warns {
+		if w.Code == "W_DEVELOP_MISSING" {
+			found = true
+			if !strings.Contains(w.Message, "no checkout at "+d.DevUnit("p", 1)) || !strings.Contains(w.Message, d.Root) {
+				t.Errorf("in-workspace message should name the checkout path and depot: %q", w.Message)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected W_DEVELOP_MISSING for a vanished checkout: %v", warns)
 	}
 }
 

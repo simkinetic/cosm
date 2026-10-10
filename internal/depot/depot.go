@@ -126,7 +126,34 @@ func (d Depot) Setup() error {
 			return err
 		}
 	}
-	return writeXDGPointer(d.Root)
+	return nil
+}
+
+// SetDefault records this depot as the global default (the XDG pointer consulted
+// by ResolveRoot when neither --depot nor $COSM_DEPOT is given). Setup does not do
+// this itself: a depot named explicitly — a throwaway verification depot, say —
+// must never silently become the default for every later command.
+func (d Depot) SetDefault() error { return writeXDGPointer(d.Root) }
+
+// Explicit reports whether the depot was named for this invocation (--depot or
+// $COSM_DEPOT) rather than found through the global default.
+func Explicit(flag string) bool { return flag != "" || os.Getenv("COSM_DEPOT") != "" }
+
+// DefaultPointer returns the depot the global default currently points at, if any.
+func DefaultPointer() (string, bool) {
+	p := xdgConfigPath()
+	if p == "" {
+		return "", false
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return "", false
+	}
+	var cfg Config
+	if json.Unmarshal(data, &cfg) != nil || cfg.Depot == "" {
+		return "", false
+	}
+	return cfg.Depot, true
 }
 
 // Lock acquires an exclusive advisory lock on the depot, blocking until
@@ -158,13 +185,8 @@ func ResolveRoot(flag string) (string, error) {
 	if e := os.Getenv("COSM_DEPOT"); e != "" {
 		return filepath.Abs(e)
 	}
-	if p := xdgConfigPath(); p != "" {
-		if data, err := os.ReadFile(p); err == nil {
-			var cfg Config
-			if json.Unmarshal(data, &cfg) == nil && cfg.Depot != "" {
-				return cfg.Depot, nil
-			}
-		}
+	if p, ok := DefaultPointer(); ok {
+		return p, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

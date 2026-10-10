@@ -24,8 +24,20 @@ type entry struct {
 	data []byte
 }
 
-// Tree returns "sha256:<hex>" for the tree rooted at root.
-func Tree(root string) (string, error) {
+// Tree returns "sha256:<hex>" for the tree rooted at root. This is the integrity
+// anchor recorded in registry specs and checked on fetch, so its definition must
+// never change: every already-registered tree hash depends on it.
+func Tree(root string) (string, error) { return walk(root, false) }
+
+// Live hashes a working checkout (the project being built, or a develop/--source
+// checkout) as a build-key input. It is Tree minus a top-level .cosm/, which holds
+// cosm's own project-local state — env symlinks, develop enrollment, its
+// .gitignore — and never source. Hashing it fed a loop: the .cosm/env link to the
+// project's own build prefix is derived from this very hash, so each
+// `cosm env`/`run`/`shell` re-pointed it, changed the tree, and forced a rebuild.
+func Live(root string) (string, error) { return walk(root, true) }
+
+func walk(root string, skipCosmState bool) (string, error) {
 	var entries []entry
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -39,6 +51,9 @@ func Tree(root string) (string, error) {
 			return nil
 		}
 		if d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if skipCosmState && d.IsDir() && rel == ".cosm" {
 			return filepath.SkipDir
 		}
 		info, ierr := d.Info()

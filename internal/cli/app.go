@@ -12,7 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -59,7 +61,7 @@ func buildRoot() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if versionFlag {
-				fmt.Printf("cosm version %s\n", Version)
+				fmt.Print(versionText())
 				return nil
 			}
 			return cmd.Help()
@@ -77,6 +79,65 @@ func buildRoot() *cobra.Command {
 	)
 	wireCompletions(root)
 	return root
+}
+
+// versionText says exactly which binary is running: the release version (from
+// ldflags), the commit and commit time Go stamps into every `go build` from a git
+// checkout, a -dirty marker for uncommitted changes, and the binary's path. The
+// path matters: a stale cosm earlier on $PATH silently shadowed a fresh install, and
+// "cosm version dev" gave no hint. It also flags when `cosm` on $PATH resolves to a
+// different binary than the one answering.
+func versionText() string {
+	v := Version
+	var rev, when string
+	dirty := false
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		// `go install cosm@vX.Y.Z` carries the module version but no VCS stamp.
+		if v == "dev" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+			v = bi.Main.Version
+		}
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				rev = s.Value
+			case "vcs.time":
+				when = s.Value
+			case "vcs.modified":
+				dirty = s.Value == "true"
+			}
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "cosm version %s", v)
+	if rev != "" {
+		if len(rev) > 12 {
+			rev = rev[:12]
+		}
+		if dirty && !strings.Contains(v, "dirty") { // Go may already say "+dirty"
+			rev += "-dirty"
+		}
+		fmt.Fprintf(&b, " (commit %s", rev)
+		if when != "" {
+			fmt.Fprintf(&b, ", %s", when)
+		}
+		b.WriteString(")")
+	}
+	b.WriteString("\n")
+	if exe, err := os.Executable(); err == nil {
+		exe = realPath(exe)
+		fmt.Fprintf(&b, "binary: %s\n", exe)
+		if onPath, err := exec.LookPath("cosm"); err == nil && realPath(onPath) != exe {
+			fmt.Fprintf(&b, "note: 'cosm' on PATH is %s, a different binary\n", realPath(onPath))
+		}
+	}
+	return b.String()
+}
+
+func realPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // ---- helpers ----
@@ -141,6 +202,24 @@ func setupCmd() *cobra.Command {
 			if _, err := manifest.LoadRegistryRefs(d.RegistriesFile()); err != nil {
 				return err
 			}
+			// Only claim the global default when no depot was named explicitly (or
+			// when asked to): `COSM_DEPOT=/tmp/x cosm setup` must not repoint every
+			// later command at /tmp/x.
+			setDefault, _ := cmd.Flags().GetBool("set-default")
+			explicit := depot.Explicit(depotFlag)
+			cur, hasDefault := depot.DefaultPointer()
+			switch {
+			case !explicit || setDefault:
+				if err := d.SetDefault(); err != nil {
+					return err
+				}
+				if explicit && cur != d.Root {
+					fmt.Printf("Default depot set to %s\n", d.Root)
+				}
+			case hasDefault && cur != d.Root:
+				fmt.Printf("Default depot unchanged (%s): this depot was named explicitly.\n"+
+					"      To make it the default: cosm setup --set-default\n", cur)
+			}
 			if store, _ := cmd.Flags().GetString("store"); store != "" {
 				cfg, _ := d.LoadConfig()
 				cfg.ArtifactStore = store
@@ -160,6 +239,7 @@ func setupCmd() *cobra.Command {
 	}
 	cmd.Flags().String("store", "", "default artifact store directory for 'cosm publish'")
 	cmd.Flags().Bool("force-guide", false, "overwrite dev/CLAUDE.md with this cosm's agent guide, discarding local edits")
+	cmd.Flags().Bool("set-default", false, "make this depot the global default even though it was named via --depot/$COSM_DEPOT")
 	return cmd
 }
 
@@ -291,7 +371,7 @@ func scaffoldPackage(build string, m *types.Manifest, dir string) ([]string, err
 // ---- status ----
 
 func statusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show the project and its resolved build list",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -300,9 +380,27 @@ func statusCmd() *cobra.Command {
 				return err
 			}
 			cwd, _ := os.Getwd()
-			m, bl, warns, err := s.Resolve(cwd)
+			withTests, _ := cmd.Flags().GetBool("tests")
+			resolveFn := s.Resolve
+			if withTests {
+				resolveFn = s.ResolveWithTests
+			}
+			m, bl, warns, err := resolveFn(cwd)
 			if err != nil {
 				return err
+			}
+			if hash, _ := cmd.Flags().GetBool("hash"); hash {
+				// Only the digest on stdout, so `$(cosm status --hash)` is clean;
+				// advisories still go to stderr.
+				for _, w := range warns {
+					fmt.Fprintf(os.Stderr, "warning[%s]: %s\n", w.Code, w.Message)
+				}
+				sum, err := service.BuildListHash(bl)
+				if err != nil {
+					return err
+				}
+				fmt.Println(sum)
+				return nil
 			}
 			fmt.Printf("%s %s", m.Name, m.Version)
 			if m.Build != "" {
@@ -332,9 +430,13 @@ func statusCmd() *cobra.Command {
 			for _, w := range warns {
 				fmt.Printf("warning[%s]: %s\n", w.Code, w.Message)
 			}
+			fmt.Print(unknownKeysNote(m))
 			return nil
 		},
 	}
+	cmd.Flags().Bool("hash", false, "print only a stable digest of the resolved dependencies (for scripts and caches)")
+	cmd.Flags().Bool("tests", false, "include test-only dependencies in the resolution")
+	return cmd
 }
 
 func sortedDeps(deps map[string]types.Dependency) []types.Dependency {
@@ -480,6 +582,9 @@ func releaseCmd() *cobra.Command {
 			opts.Minor, _ = cmd.Flags().GetBool("minor")
 			opts.Major, _ = cmd.Flags().GetBool("major")
 			cwd, _ := os.Getwd()
+			if m, lerr := manifest.LoadManifestFromDir(cwd); lerr == nil {
+				fmt.Print(unknownKeysNote(m)) // kept in the release, but worth a look
+			}
 			ver, err := s.Release(cwd, opts)
 			if err != nil {
 				return err

@@ -23,6 +23,9 @@ type Runner struct {
 	// Stream, when set, receives the long verbs' (build/test) stderr live in
 	// addition to the buffer used for failure reporting — for `--verbose`.
 	Stream io.Writer
+	// Env is extra KEY=VALUE pairs added to the extension's environment (and so
+	// inherited by whatever it runs, e.g. ctest and the tests themselves).
+	Env []string
 }
 
 func NewRunner(d depot.Depot) *Runner { return &Runner{d: d} }
@@ -54,6 +57,9 @@ func (r *Runner) call(id, verb string, req, resp any, stream io.Writer) error {
 		}
 	}
 	cmd := exec.Command(exe, verb)
+	if len(r.Env) > 0 {
+		cmd.Env = append(os.Environ(), r.Env...)
+	}
 	cmd.Stdin = bytes.NewReader(in)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out

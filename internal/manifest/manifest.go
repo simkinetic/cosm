@@ -178,7 +178,17 @@ func SaveEnrollment(path string, e *types.Enrollment) error {
 	if e.SchemaVersion == 0 {
 		e.SchemaVersion = types.SchemaVersion
 	}
-	return writeJSON(path, e)
+	if err := writeJSON(path, e); err != nil {
+		return err
+	}
+	// Enrollment is per-developer state. Keep it — and the rest of .cosm/ — out of
+	// git even when `cosm develop` runs before anything else has written
+	// .cosm/.gitignore; otherwise a `git add -A` ships it inside the next release.
+	ignore := filepath.Join(filepath.Dir(path), ".gitignore")
+	if _, err := os.Stat(ignore); os.IsNotExist(err) {
+		_ = os.WriteFile(ignore, []byte("*\n"), 0o644)
+	}
+	return nil
 }
 
 // LoadBuildList / SaveBuildList handle the local resolved build list and the

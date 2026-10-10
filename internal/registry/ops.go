@@ -242,7 +242,7 @@ func (s *Service) registerVersion(regDir, name, pkgUUID, giturl, tag, clonePath 
 	specs := &types.Specs{
 		SchemaVersion: types.SchemaVersion,
 		Name:          name, UUID: pkgUUID, Version: tag, GitURL: giturl,
-		Commit: commit, Tree: tree, Build: m.Build, Provides: m.Provides, Deps: deps, Ext: m.Ext,
+		Commit: commit, Tree: tree, Build: m.Build, Provides: m.Provides, Deps: deps, Ext: m.Ext, License: m.License,
 	}
 	if err := manifest.SaveSpecs(SpecsFile(regDir, name, tag), specs); err != nil {
 		return err

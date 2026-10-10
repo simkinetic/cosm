@@ -360,3 +360,124 @@ func TestIntegrityMismatch(t *testing.T) {
 		t.Fatal("expected error for missing source / bad tree")
 	}
 }
+
+// recordingActivate installs an extension whose activate verb saves the request it
+// was sent, so a test can inspect what the core passed (and in which order).
+func recordingActivate(t *testing.T, d depot.Depot) string {
+	t.Helper()
+	dir := filepath.Join(d.Extensions(), "rec")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := filepath.Join(t.TempDir(), "activate.json")
+	script := `#!/bin/sh
+case "$1" in
+  info) echo '{"extension":"rec","version":"0.0.1","protocol":1,"toolchainId":"rec-tc","capabilities":["info","activate"]}' ;;
+  activate) cat > "` + rec + `"; echo '{"env":{}}' ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "cosm-ext-rec"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+// TestActivateDeterministicAndPruned: `cosm env` feeds Activate, whose dep order
+// becomes the order of path-list values (CMAKE_PREFIX_PATH, LUA_PATH, ...). It used
+// to follow Go map order, reshuffling the environment between runs. And `.cosm/env`
+// links for dropped deps used to linger forever.
+func TestActivateDeterministicAndPruned(t *testing.T) {
+	m, d, _ := newMat(t)
+	rec := recordingActivate(t, d)
+	proj := t.TempDir()
+
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{}}
+	built := map[string]Built{}
+	for _, n := range []string{"zeta", "alpha", "mu", "beta", "omega", "kappa"} {
+		key := "u-" + n + "@v0"
+		bl.Dependencies[key] = types.BuildListEntry{Name: n, UUID: "u-" + n, Version: "v0.1.0"}
+		built[key] = Built{Prefix: t.TempDir()}
+	}
+	root := &types.Manifest{Name: "app", UUID: "u-app", Version: "v0.1.0", Build: "rec"}
+
+	// A stale link for a dependency no longer in the build list, plus a user file.
+	envDir := filepath.Join(proj, ".cosm", "env")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(envDir, "gone@v1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(envDir, "notes.txt"), []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var first []byte
+	for i := 0; i < 20; i++ { // map order would differ across these iterations
+		if _, err := m.Activate(root, proj, bl, built, Built{}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			first = got
+			var req ext.ActivateRequest
+			if err := json.Unmarshal(got, &req); err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for _, dc := range req.Deps {
+				names = append(names, dc.Name)
+			}
+			if strings.Join(names, ",") != "alpha,beta,kappa,mu,omega,zeta" {
+				t.Fatalf("deps not in sorted order: %v", names)
+			}
+		} else if !bytes.Equal(got, first) {
+			t.Fatalf("activate request changed between runs (run %d)", i)
+		}
+	}
+
+	if _, err := os.Lstat(filepath.Join(envDir, "gone@v1")); !os.IsNotExist(err) {
+		t.Error("stale .cosm/env link for a dropped dependency was not pruned")
+	}
+	if _, err := os.Stat(filepath.Join(envDir, "notes.txt")); err != nil {
+		t.Error("a non-symlink file in .cosm/env must be left alone")
+	}
+	if _, err := os.Lstat(filepath.Join(envDir, "alpha@v0")); err != nil {
+		t.Error("a live dependency's link was removed")
+	}
+}
+
+// TestEnvDoesNotRebuildRoot: activating writes .cosm/env links into the project,
+// including one to the project's own build prefix. That prefix is derived from the
+// project's tree hash, so when .cosm/ was hashed every `cosm env`/`run`/`shell`
+// re-pointed the link, changed the tree, and rebuilt the project — forever.
+func TestEnvDoesNotRebuildRoot(t *testing.T) {
+	m, _, counter := newMat(t)
+	proj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(proj, "main.lua"), []byte("print(1)"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := &types.Manifest{Name: "app", UUID: "u-app", Version: "v0.1.0", Build: "fake"}
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{}}
+	var keys []string
+	for i := 0; i < 4; i++ { // what four `cosm env` runs do
+		built, rootBuilt, err := m.BuildProject(root, proj, bl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := m.Activate(root, proj, bl, built, rootBuilt); err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, rootBuilt.BuildKey)
+	}
+	if n := countLines(t, counter); n != 1 {
+		t.Errorf("root built %d times across 4 activations, want 1 (keys %v)", n, keys)
+	}
+	if _, err := os.Lstat(filepath.Join(proj, ".cosm", "env", "app@v0")); err != nil {
+		t.Fatalf("expected the project's own env link: %v", err)
+	}
+}

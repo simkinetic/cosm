@@ -31,11 +31,16 @@ type Manifest struct {
 	UUID          string                     `json:"uuid"`
 	Version       string                     `json:"version"`
 	Authors       []Author                   `json:"authors,omitempty"`
+	License       string                     `json:"license,omitempty"`  // SPDX expression, e.g. "MIT"
 	Build         string                     `json:"build,omitempty"`    // extension id
 	Provides      []string                   `json:"provides,omitempty"` // module namespaces
 	Deps          map[string]Dependency      `json:"deps,omitempty"`
 	TestDeps      map[string]Dependency      `json:"testDeps,omitempty"` // test-only, non-transitive (§7.6)
 	Ext           map[string]json.RawMessage `json:"ext,omitempty"`      // opaque to core
+
+	// Extra holds top-level keys cosm doesn't model, preserved verbatim so that
+	// rewriting cosm.json (release, upgrade, add) never silently drops them.
+	Extra map[string]json.RawMessage `json:"-"`
 }
 
 // RegistryKind marks how a registry's packages are materialized (§4.2, §8.5).
@@ -103,6 +108,7 @@ type Specs struct {
 	GitURL        string                     `json:"giturl,omitempty"` // source-fetch URL; omitted in binary-only
 	Commit        string                     `json:"commit"`           // immutable identifier
 	Tree          string                     `json:"tree,omitempty"`   // content hash (integrity + build-key input)
+	License       string                     `json:"license,omitempty"`
 	Build         string                     `json:"build,omitempty"`
 	Provides      []string                   `json:"provides,omitempty"`
 	Deps          map[string]Dependency      `json:"deps"`
