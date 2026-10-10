@@ -34,4 +34,8 @@ type Workspace struct {
 type Enrollment struct {
 	SchemaVersion int      `json:"schemaVersion"`
 	Enrolled      []string `json:"enrolled"`
+	// Names maps each enrolled unit key to its package name, so messages can name a
+	// unit even when its checkout is gone and no registry knows it (an unpublished
+	// sibling, or the wrong depot). Optional: older enrollments lack it.
+	Names map[string]string `json:"names,omitempty"`
 }

@@ -337,3 +337,120 @@ func TestMissingUnpublishedDevelopDep(t *testing.T) {
 		}
 	}
 }
+
+// coStack builds an unpublished co-developed chain app -> direct -> transitive,
+// with direct and transitive adopted into the workspace by path (never released).
+func coStack(t *testing.T, s *Service) (proj, directDir, transDir string) {
+	t.Helper()
+	mk := func(name, uuid string, deps map[string]types.Dependency) string {
+		dir := t.TempDir()
+		if err := manifest.SaveManifest(filepath.Join(dir, "cosm.json"), &types.Manifest{
+			Name: name, UUID: uuid, Version: "v0.1.0", Build: "lua", Deps: deps,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	transDir = mk("transitive", "u-trans", nil)
+	directDir = mk("direct", "u-direct", map[string]types.Dependency{
+		semver.UnitKey("u-trans", 0): {Name: "transitive", Version: "v0.1.0"},
+	})
+	proj = t.TempDir()
+	writeProject(t, proj, map[string]types.Dependency{
+		semver.UnitKey("u-direct", 0): {Name: "direct", Version: "v0.1.0"},
+	})
+	// Adopt both into the workspace from a scratch project, so `proj` itself is
+	// enrolled for neither: that is the state `cosm develop --all` must fix.
+	scratch := t.TempDir()
+	writeProject(t, scratch, nil)
+	for name, dir := range map[string]string{"direct": directDir, "transitive": transDir} {
+		if _, err := s.Develop(scratch, name, -1, "", "", dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return proj, directDir, transDir
+}
+
+// TestDevelopAllUnpublishedStack: `develop --all` resolved first, but a transitive
+// unpublished sibling only resolves once enrolled — so it failed before learning it
+// should enroll it. It now walks the graph through the workspace checkouts.
+func TestDevelopAllUnpublishedStack(t *testing.T) {
+	d := seedDepot(t)
+	s := New(d, gitx.Exec{})
+	proj, _, _ := coStack(t, s)
+
+	names, err := s.DevelopAll(proj)
+	if err != nil {
+		t.Fatalf("develop --all on an unpublished stack: %v", err)
+	}
+	if strings.Join(names, ",") != "direct,transitive" {
+		t.Fatalf("enrolled %v, want [direct transitive]", names)
+	}
+	_, bl, _, err := s.Resolve(proj)
+	if err != nil {
+		t.Fatalf("stack should resolve after --all: %v", err)
+	}
+	if !bl.Dependencies[semver.UnitKey("u-trans", 0)].Develop {
+		t.Error("transitive should resolve from its develop checkout")
+	}
+	enr, _ := manifest.LoadEnrollment(develop.EnrollmentPath(proj))
+	if enr.Names[semver.UnitKey("u-trans", 0)] != "transitive" {
+		t.Errorf("enrollment should record names: %v", enr.Names)
+	}
+}
+
+// TestResolveHintsUnenrolledSibling: when resolution fails on a package that sits in
+// the workspace but this project isn't enrolled for, say so instead of a bare
+// "not found in any registry".
+func TestResolveHintsUnenrolledSibling(t *testing.T) {
+	d := seedDepot(t)
+	s := New(d, gitx.Exec{})
+	proj, _, _ := coStack(t, s)
+	if _, err := s.Develop(proj, "direct", -1, "", "", ""); err != nil { // direct only
+		t.Fatal(err)
+	}
+	_, _, _, err := s.Resolve(proj)
+	if err == nil {
+		t.Fatal("expected failure: transitive isn't enrolled")
+	}
+	if !errors.Is(err, errs.ErrPackageNotFound) || errs.ExitCode(err) != 3 {
+		t.Errorf("must still be a not-found error with exit code 3: %v", err)
+	}
+	for _, want := range []string{"transitive is in the develop workspace", "isn't enrolled", "cosm develop --all"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should say %q:\n%v", want, err)
+		}
+	}
+}
+
+// TestMissingTransitiveNamed: a transitive enrolled unit is not in the project's
+// cosm.json, so with its checkout gone (or the wrong depot) it showed as a raw
+// <uuid>@v0. The name now comes from the enrollment or a registry clone.
+func TestMissingTransitiveNamed(t *testing.T) {
+	d := seedDepot(t)
+	s := New(d, gitx.Exec{})
+	proj, _, _ := coStack(t, s)
+	if _, err := s.DevelopAll(proj); err != nil {
+		t.Fatal(err)
+	}
+	// The wrong depot: same project, a depot holding none of the checkouts.
+	other := New(seedDepot(t), gitx.Exec{})
+	_, _, _, err := other.Resolve(proj)
+	if err == nil {
+		t.Fatal("expected failure in a depot without the checkouts")
+	}
+	if strings.Contains(err.Error(), "u-trans@v0 is enrolled") || !strings.Contains(err.Error(), "transitive is enrolled for development") {
+		t.Errorf("transitive should be named, not shown as a key:\n%v", err)
+	}
+
+	// A legacy enrollment without names still finds the name in a registry clone.
+	enr, _ := manifest.LoadEnrollment(develop.EnrollmentPath(proj))
+	enr.Names = nil
+	if err := manifest.SaveEnrollment(develop.EnrollmentPath(proj), enr); err != nil {
+		t.Fatal(err)
+	}
+	seedPkg(t, other.D, "R", "transitive", "u-trans", mkSpec("transitive", "u-trans", "v0.0.1"))
+	if _, _, _, err := other.Resolve(proj); err == nil || !strings.Contains(err.Error(), "transitive is enrolled for development") {
+		t.Errorf("legacy enrollment: name should come from the registry clone:\n%v", err)
+	}
+}

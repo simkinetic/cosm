@@ -47,7 +47,7 @@ func (s *Service) Develop(projectDir, name string, major int, branch, tag, path 
 				return "", err
 			}
 		}
-		if err := s.enroll(projectDir, semver.UnitKey(we.UUID, we.Major)); err != nil {
+		if err := s.enroll(projectDir, semver.UnitKey(we.UUID, we.Major), we.Name); err != nil {
 			return "", err
 		}
 		return devDir, nil
@@ -96,7 +96,7 @@ func (s *Service) Develop(projectDir, name string, major int, branch, tag, path 
 	if err := s.upsertWorkspace(we); err != nil {
 		return "", err
 	}
-	if err := s.enroll(projectDir, semver.UnitKey(e.UUID, e.Major)); err != nil {
+	if err := s.enroll(projectDir, semver.UnitKey(e.UUID, e.Major), e.Name); err != nil {
 		return "", err
 	}
 	return devDir, nil
@@ -106,7 +106,7 @@ func (s *Service) Develop(projectDir, name string, major int, branch, tag, path 
 // ergonomic "develop the whole stack at once"), cloning any missing shared
 // checkouts. Returns the names enrolled, sorted.
 func (s *Service) DevelopAll(projectDir string) ([]string, error) {
-	_, bl, _, err := s.Resolve(projectDir)
+	root, err := manifest.LoadManifestFromDir(projectDir)
 	if err != nil {
 		return nil, err
 	}
@@ -118,24 +118,81 @@ func (s *Service) DevelopAll(projectDir string) ([]string, error) {
 	for _, e := range ws.Entries {
 		inWS[semver.UnitKey(e.UUID, e.Major)] = e
 	}
-	var names []string
-	for key := range bl.Dependencies {
-		we, ok := inWS[key]
-		if !ok {
-			continue
+	enrolled := map[string]string{} // key -> name
+	adopt := func(key string, we types.WorkspaceEntry) error {
+		if _, done := enrolled[key]; done {
+			return nil
 		}
 		if _, statErr := os.Lstat(s.D.DevUnit(we.Name, we.Major)); os.IsNotExist(statErr) {
 			if we.GitURL == "" {
-				return nil, fmt.Errorf("%w: %s is in the workspace but its checkout is missing and it has no git URL", errs.ErrUsage, we.Name)
+				return fmt.Errorf("%w: %s is in the workspace but its checkout is missing and it has no git URL", errs.ErrUsage, we.Name)
 			}
 			if err := s.cloneDevUnit(we, "", ""); err != nil {
+				return err
+			}
+		}
+		if err := s.enroll(projectDir, key, we.Name); err != nil {
+			return err
+		}
+		enrolled[key] = we.Name
+		return nil
+	}
+
+	// Walk the dependency graph first, through the workspace checkouts' own
+	// cosm.json, enrolling as we go. Resolving first can't work for a co-developed
+	// stack that isn't published yet: a transitive sibling only resolves once it is
+	// enrolled, so resolution fails before we learn it should be. Released units
+	// are followed through their registry specs when the local clone has them.
+	type item struct {
+		key string
+		dep types.Dependency
+	}
+	var queue []item
+	push := func(deps map[string]types.Dependency) {
+		for k, d := range deps {
+			queue = append(queue, item{k, d})
+		}
+	}
+	push(root.Deps)
+	seen := map[string]bool{}
+	for len(queue) > 0 {
+		it := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if seen[it.key] {
+			continue
+		}
+		seen[it.key] = true
+		if we, ok := inWS[it.key]; ok {
+			if err := adopt(it.key, we); err != nil {
+				return nil, err
+			}
+			if man, err := manifest.LoadManifestFromDir(s.D.DevUnit(we.Name, we.Major)); err == nil {
+				push(man.Deps)
+			}
+			continue
+		}
+		uuid, _, _ := semver.SplitUnitKey(it.key)
+		if sp, err := s.Loader.Load(it.dep.Name, uuid, it.dep.Version); err == nil {
+			push(sp.Deps)
+		}
+	}
+
+	// Then resolve, to pick up anything MVS selection adds beyond the declared
+	// floors, and to fail clearly if the stack still doesn't resolve.
+	_, bl, _, err := s.Resolve(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	for key := range bl.Dependencies {
+		if we, ok := inWS[key]; ok {
+			if err := adopt(key, we); err != nil {
 				return nil, err
 			}
 		}
-		if err := s.enroll(projectDir, key); err != nil {
-			return nil, err
-		}
-		names = append(names, we.Name)
+	}
+	names := make([]string, 0, len(enrolled))
+	for _, n := range enrolled {
+		names = append(names, n)
 	}
 	sort.Strings(names)
 	return names, nil
@@ -181,7 +238,7 @@ func (s *Service) developFromPath(projectDir, name, path string) (string, error)
 	}); err != nil {
 		return "", err
 	}
-	if err := s.enroll(projectDir, semver.UnitKey(man.UUID, major)); err != nil {
+	if err := s.enroll(projectDir, semver.UnitKey(man.UUID, major), man.Name); err != nil {
 		return "", err
 	}
 	return devDir, nil
@@ -288,16 +345,25 @@ func (s *Service) upsertWorkspace(entry types.WorkspaceEntry) error {
 	return manifest.SaveWorkspace(s.D.WorkspaceFile(), ws)
 }
 
-func (s *Service) enroll(projectDir, key string) error {
+func (s *Service) enroll(projectDir, key, name string) error {
 	p := develop.EnrollmentPath(projectDir)
 	e, err := manifest.LoadEnrollment(p)
 	if err != nil {
 		return err
 	}
-	if containsStr(e.Enrolled, key) {
+	have := containsStr(e.Enrolled, key)
+	if have && (name == "" || e.Names[key] == name) {
 		return nil
 	}
-	e.Enrolled = append(e.Enrolled, key)
+	if !have {
+		e.Enrolled = append(e.Enrolled, key)
+	}
+	if name != "" {
+		if e.Names == nil {
+			e.Names = map[string]string{}
+		}
+		e.Names[key] = name
+	}
 	return manifest.SaveEnrollment(p, e)
 }
 
@@ -314,5 +380,6 @@ func (s *Service) unenroll(projectDir, key string) error {
 		}
 	}
 	e.Enrolled = kept
+	delete(e.Names, key)
 	return manifest.SaveEnrollment(p, e)
 }

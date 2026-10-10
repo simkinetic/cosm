@@ -57,7 +57,7 @@ func (l *Loader) Load(name, uuid, version string) (types.Specs, error) {
 		}
 		return *sp, nil
 	}
-	return types.Specs{}, fmt.Errorf("%w: %s@%s", errs.ErrPackageNotFound, name, version)
+	return types.Specs{}, &errs.PackageNotFoundError{Name: name, Version: version}
 }
 
 // Location is a package found in a registry (for `cosm add` selection).
@@ -164,4 +164,25 @@ func (l *Loader) Latest(regDir, name string) (string, error) {
 		}
 	}
 	return best, nil
+}
+
+// NameByUUID returns the package name a local registry clone lists for uuid, so a
+// unit known only by its key can still be named in messages.
+func (l *Loader) NameByUUID(uuid string) (string, bool) {
+	refs, err := l.refs()
+	if err != nil {
+		return "", false
+	}
+	for _, ref := range refs {
+		reg, err := manifest.LoadRegistry(MetaFile(l.d.Registry(ref.Name)))
+		if err != nil {
+			continue
+		}
+		for name, pkg := range reg.Packages {
+			if pkg.UUID == uuid {
+				return name, true
+			}
+		}
+	}
+	return "", false
 }

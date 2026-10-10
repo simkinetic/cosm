@@ -7,6 +7,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -90,21 +91,46 @@ func (s *Service) resolve(projectDir string, includeTests bool, opts ...ResolveO
 		bl, warns, err = resolve.Resolve(m, s.Loader, ov)
 	}
 	if err == nil {
-		warns = append(warns, s.developAdvisories(projectDir, bl, missing)...)
-	} else if len(missing) > 0 {
-		// An unpublished, develop-only dependency has no registry release to fall
-		// back to, so a missing checkout (or the wrong depot) surfaces as "not found
-		// in any registry" — which points the wrong way. Say where we looked.
-		var notes []string
-		for _, mi := range missing {
-			name := s.missingName(mi, m, bl)
-			notes = append(notes, fmt.Sprintf("%s is enrolled for development but %s", name, s.missingWhere(mi, name)))
-		}
-		sort.Strings(notes)
-		err = fmt.Errorf("%w\n  note: %s\n  Run 'cosm develop <name>' to restore a checkout, or check that --depot/$COSM_DEPOT name the depot you expect",
-			err, strings.Join(notes, "\n  note: "))
+		warns = append(warns, s.developAdvisories(projectDir, m, bl, missing)...)
+	} else {
+		err = s.explainResolveError(err, projectDir, m, bl, missing)
 	}
 	return m, bl, warns, err
+}
+
+// explainResolveError adds what the co-development state says about a failed
+// resolution. An unpublished, develop-only dependency has no registry release to
+// fall back to, so both of the usual causes surface as "not found in any registry",
+// which points the wrong way: a sibling sitting in the workspace that this project
+// isn't enrolled for, and an enrolled checkout that is missing (often: the wrong
+// depot). The original error stays wrapped, so the exit code is unchanged.
+func (s *Service) explainResolveError(err error, projectDir string, m *types.Manifest, bl types.BuildList, missing []develop.Missing) error {
+	enr, _ := manifest.LoadEnrollment(develop.EnrollmentPath(projectDir))
+	var notes []string
+	var nf *errs.PackageNotFoundError
+	if errors.As(err, &nf) {
+		if ws, werr := manifest.LoadWorkspace(s.D.WorkspaceFile()); werr == nil {
+			for _, we := range ws.Entries {
+				if we.Name == nf.Name && !containsStr(enr.Enrolled, semver.UnitKey(we.UUID, we.Major)) {
+					notes = append(notes, fmt.Sprintf("%s is in the develop workspace of depot %s, but this project isn't enrolled for it. "+
+						"Run 'cosm develop %s', or 'cosm develop --all' to enroll the whole co-developed stack", we.Name, s.D.Root, we.Name))
+				}
+			}
+		}
+	}
+	for _, mi := range missing {
+		name := s.missingName(mi, m, bl, enr)
+		notes = append(notes, fmt.Sprintf("%s is enrolled for development but %s", name, s.missingWhere(mi, name)))
+	}
+	if len(notes) == 0 {
+		return err
+	}
+	sort.Strings(notes)
+	tail := ""
+	if len(missing) > 0 {
+		tail = "\n  Run 'cosm develop <name>' to restore a checkout, or check that --depot/$COSM_DEPOT name the depot you expect"
+	}
+	return fmt.Errorf("%w\n  note: %s%s", err, strings.Join(notes, "\n  note: "), tail)
 }
 
 // developAdvisories surfaces the two easy-to-miss develop states, so build/test/
@@ -112,7 +138,7 @@ func (s *Service) resolve(projectDir string, includeTests bool, opts ...ResolveO
 // workspace that this project isn't developing (silently using the registry
 // version), and a unit this project IS enrolled for whose checkout is missing (so
 // resolution fell back to the registry). Sorted for deterministic output.
-func (s *Service) developAdvisories(projectDir string, bl types.BuildList, missing []develop.Missing) []resolve.Warning {
+func (s *Service) developAdvisories(projectDir string, m *types.Manifest, bl types.BuildList, missing []develop.Missing) []resolve.Warning {
 	ws, _ := manifest.LoadWorkspace(s.D.WorkspaceFile())
 	enr, _ := manifest.LoadEnrollment(develop.EnrollmentPath(projectDir))
 	enrolled := map[string]bool{}
@@ -137,7 +163,7 @@ func (s *Service) developAdvisories(projectDir string, bl types.BuildList, missi
 		}
 	}
 	for _, mi := range missing {
-		name := s.missingName(mi, nil, bl)
+		name := s.missingName(mi, m, bl, enr)
 		warns = append(warns, resolve.Warning{
 			Code: "W_DEVELOP_MISSING",
 			Message: fmt.Sprintf("%s is enrolled for development but %s; using the registry version. "+
@@ -150,8 +176,11 @@ func (s *Service) developAdvisories(projectDir string, bl types.BuildList, missi
 }
 
 // missingName finds a readable name for an enrolled unit whose checkout is gone:
-// from the workspace entry, the build list, or the project's own declarations.
-func (s *Service) missingName(mi develop.Missing, m *types.Manifest, bl types.BuildList) string {
+// from the workspace entry, the build list, the project's own declarations, the
+// name recorded at enrollment, or a local registry clone. A transitive unit is
+// in none of the first three when its checkout is missing, so without the last two
+// it showed as a raw <uuid>@v<major>.
+func (s *Service) missingName(mi develop.Missing, m *types.Manifest, bl types.BuildList, enr *types.Enrollment) string {
 	if mi.Entry.Name != "" {
 		return mi.Entry.Name
 	}
@@ -164,6 +193,14 @@ func (s *Service) missingName(mi develop.Missing, m *types.Manifest, bl types.Bu
 		}
 		if d, ok := m.TestDeps[mi.Key]; ok {
 			return d.Name
+		}
+	}
+	if enr != nil && enr.Names[mi.Key] != "" {
+		return enr.Names[mi.Key]
+	}
+	if uuid, _, err := semver.SplitUnitKey(mi.Key); err == nil {
+		if name, ok := s.Loader.NameByUUID(uuid); ok {
+			return name
 		}
 	}
 	return mi.Key

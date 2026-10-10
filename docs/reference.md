@@ -97,7 +97,11 @@ the same advisories (to stderr), so all five agree on what you're building again
 The missing-checkout warning names the depot and path it actually checked, since the
 usual cause is running against a different depot than the one holding the checkout.
 For an unpublished dependency there is no registry release to fall back to, so the
-same detail is attached to the resolution error instead.
+same detail is attached to the resolution error instead. When resolution fails on a
+package that is in the develop workspace but not enrolled for this project, the error
+says so and names the command (`cosm develop <name>`, or `--all` for the stack).
+Packages are named, never shown as raw `<uuid>@v<major>` keys: a transitive one is
+named from the enrollment (which records names) or a local registry clone.
 It also lists any `cosm.json` keys cosm doesn't use (they are preserved on every
 rewrite) and points out likely misspellings such as `licence` for `license`.
 - `--hash` — print only a stable digest of the resolved dependencies, for scripts and
@@ -256,7 +260,9 @@ to use it. Enrollment is authoritative; the checkout is created on demand. Resol
 in precedence order: an already-adopted workspace unit, then a resolved dependency
 (cloned from its registry URL).
 - `--all` — enroll **every** workspace package this project depends on (no `<name>`),
-  so you adopt a whole co-developed stack in one command.
+  so you adopt a whole co-developed stack in one command. It follows the dependency
+  graph through the workspace checkouts themselves, so it also works for a stack that
+  isn't published yet, where a transitive sibling can't resolve until it is enrolled.
 - `--path <dir>` — **adopt a local checkout** (symlinked into the workspace) instead
   of cloning. This is how you co-develop a **new, unpublished** package: the sibling
   needn't be in any registry. Its identity comes from `<dir>/cosm.json`. Pair it with
@@ -445,7 +451,9 @@ guide matching it with their own — downgrading a newer one.
 - `$COSM_DEPOT/dev/workspace.json` — shared develop checkouts: `[{name, uuid,
   major, giturl, ref, refKind, path}]`.
 - `<project>/.cosm/develop.json` — a project's enrollment: `{ "enrolled":
-  ["<uuid>@v0", …] }`. Git-ignored; never committed.
+  ["<uuid>@v0", …], "names": { "<uuid>@v0": "<name>", … } }`. `names` lets messages
+  name a unit whose checkout is gone; older enrollments lack it. Git-ignored; never
+  committed.
 - `<project>/.cosm/env/<name>@v<major>` — a symlink to that dependency's current
   install prefix, re-pointed on every `cosm env`/`run`/`shell`; links for units no
   longer in the build list are pruned. `cosm env` emits paths through these so

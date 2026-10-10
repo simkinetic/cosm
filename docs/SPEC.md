@@ -454,8 +454,12 @@ each project records the units it enrolls in a git-ignored, project-local
 `.cosm/develop.json`:
 
 ```json
-{ "schemaVersion": 1, "enrolled": ["d38cb13b-…@v0", "4510efb2-…@v1"] }
+{ "schemaVersion": 1, "enrolled": ["d38cb13b-…@v0", "4510efb2-…@v1"],
+  "names": { "d38cb13b-…@v0": "terrastd", "4510efb2-…@v1": "terratest" } }
 ```
+`names` (optional) records each enrolled unit's package name, so diagnostics can name
+a unit whose checkout is missing and that no registry knows (an unpublished sibling,
+or a run against the wrong depot).
 
 Resolution rule: a compatibility unit `<uuid>@vMAJOR` is overridden **iff** it is
 **enrolled by the current project**. Enrollment is authoritative; if an enrolled unit
@@ -987,6 +991,10 @@ to use them (per-project opt-in, §7.4). Two pieces of state: the depot
 - `cosm develop --all` (no `<name>`) enrolls the current project in **every** workspace
   package it depends on (cloning any missing shared checkouts) — adopt a whole
   co-developed stack in one command instead of one `cosm develop <name>` at a time.
+  It first walks the dependency graph through the workspace checkouts' own `cosm.json`
+  (and the registry specs of released units), enrolling as it goes, and only then
+  resolves: resolving first cannot work for an unpublished stack, since a transitive
+  sibling resolves only once it is enrolled.
 - `--path <dir>` **bootstraps a new, unpublished sibling**: it adopts the local
   package at `<dir>` (identity from its `cosm.json`) by symlinking it into the
   workspace (entry marked `"local": true`), so it needn't exist in any registry.

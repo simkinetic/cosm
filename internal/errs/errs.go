@@ -80,3 +80,15 @@ func ExitCode(err error) int {
 	}
 	return 1
 }
+
+// PackageNotFoundError names the package/version resolution could not find. It
+// wraps ErrPackageNotFound, so errors.Is and the exit code are unchanged; callers
+// that know more (say, that the package sits unenrolled in the develop workspace)
+// can recover the name with errors.As.
+type PackageNotFoundError struct{ Name, Version string }
+
+func (e *PackageNotFoundError) Error() string {
+	return fmt.Sprintf("%v: %s@%s", ErrPackageNotFound, e.Name, e.Version)
+}
+
+func (e *PackageNotFoundError) Unwrap() error { return ErrPackageNotFound }
