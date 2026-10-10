@@ -29,6 +29,7 @@ type RegistryCheck struct {
 	Registries []string
 	Packages   int
 	Versions   int // versions checked
+	Yanked     int // yanked versions, skipped: abandoned on purpose
 	Problems   []RegistryProblem
 }
 
@@ -71,6 +72,16 @@ func (s *Service) CheckRegistries(regName string, latestOnly bool) (*RegistryChe
 				out.Problems = append(out.Problems, RegistryProblem{rn, pkg, "", fmt.Errorf("versions list unreadable: %w", err)})
 				continue
 			}
+			pol, _ := manifest.LoadPolicy(registry.PolicyFile(regDir, pkg))
+			var live []string
+			for _, v := range vers {
+				if _, y := pol.Yanked[v]; y {
+					out.Yanked++
+					continue
+				}
+				live = append(live, v)
+			}
+			vers = live
 			if latestOnly {
 				vers = latestPerMajor(vers)
 			}
@@ -105,7 +116,7 @@ func (s *Service) checkRegisteredVersion(regDir, pkg, uuid, version string) []er
 		duuid, _, _ := semver.SplitUnitKey(k)
 		if _, err := s.Loader.Load(d.Name, duuid, d.Version); errors.Is(err, errs.ErrPackageNotFound) {
 			hint := "not registered at all"
-			if _, _, vs, verr := s.Loader.Versions(d.Name); verr == nil && len(vs) > 0 {
+			if _, _, vs, verr := s.Loader.SelectableVersions(d.Name); verr == nil && len(vs) > 0 {
 				hint = "registered: " + strings.Join(vs, ", ")
 			}
 			probs = append(probs, kindf(errs.ErrPackageNotFound, "requires %s %s, which is in no registry (%s)", d.Name, d.Version, hint))

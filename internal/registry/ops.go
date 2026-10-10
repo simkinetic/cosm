@@ -85,20 +85,50 @@ func (s *Service) registerRef(ref types.RegistryRef) error {
 	return manifest.SaveRegistryRefs(s.d.RegistriesFile(), refs)
 }
 
-// AddPackage registers a package from giturl and records every released version
-// not already present. It is idempotent: on a package that's already registered
-// it simply picks up any new tags (a per-package sync). Returns the package name
-// and the versions newly added.
+// AddOptions narrows which tags `registry add` registers.
+type AddOptions struct {
+	// From sets the package's registration floor (policy "since"): tags below it
+	// are not registered, now or by any later add or sync.
+	From string
+	// Tags registers only these tags (a one-off selection; it doesn't change what
+	// a later sync picks up — use From for that). Naming a removed version
+	// registers it again.
+	Tags []string
+}
+
+// AddResult reports what AddPackageWith did.
+type AddResult struct {
+	Name    string
+	Added   []string
+	Skipped []string // "<tag>: <reason>", tags the policy kept out
+	// BelowFloor lists already-registered versions under a newly set floor. They
+	// stay registered (the floor only governs new registrations).
+	BelowFloor []string
+}
+
+// AddPackage registers a package from giturl with no tag selection: every released
+// version the package's policy allows. It is idempotent: on a package that's
+// already registered it simply picks up any new tags (a per-package sync).
 func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
+	r, err := s.AddPackageWith(regName, giturl, AddOptions{})
+	if err != nil {
+		return "", nil, err
+	}
+	return r.Name, r.Added, nil
+}
+
+// AddPackageWith registers a package from giturl, honouring its policy (policy.json:
+// since / excluded) and opts.
+func (s *Service) AddPackageWith(regName, giturl string, opts AddOptions) (*AddResult, error) {
 	regDir := s.d.Registry(regName)
 	reg, err := manifest.LoadRegistry(MetaFile(regDir))
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: %s", errs.ErrRegistryNotFound, regName)
+		return nil, fmt.Errorf("%w: %s", errs.ErrRegistryNotFound, regName)
 	}
 	tmp := filepath.Join(s.d.Root, "mirrors", "tmp-add")
 	os.RemoveAll(tmp)
 	if err := s.git.Clone(giturl, tmp); err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	moved := false
 	defer func() {
@@ -107,7 +137,7 @@ func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 		}
 	}()
 	if err := s.git.Fetch(tmp, "--tags"); err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	head, err := manifest.LoadManifestFromDir(tmp)
 	if err != nil {
@@ -121,36 +151,82 @@ func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 			}
 		}
 		if err != nil {
-			return "", nil, fmt.Errorf("%w: no cosm.json found in %s (checked its branches)", errs.ErrNoProject, giturl)
+			return nil, fmt.Errorf("%w: no cosm.json found in %s (checked its branches)", errs.ErrNoProject, giturl)
 		}
 	}
 	if err := validateManifest(head); err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	// Guard against a name collision with a different package.
 	if existing, ok := reg.Packages[head.Name]; ok && existing.UUID != head.UUID {
-		return "", nil, fmt.Errorf("%w: %q already registered with a different UUID", errs.ErrUsage, head.Name)
+		return nil, fmt.Errorf("%w: %q already registered with a different UUID", errs.ErrUsage, head.Name)
 	}
 	tags, err := s.git.ListTags(tmp)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	registered, _ := manifest.LoadVersions(VersionsFile(regDir, head.Name))
+	pol, err := manifest.LoadPolicy(PolicyFile(regDir, head.Name))
+	if err != nil {
+		return nil, err
+	}
+	before := policyKey(pol)
+	res := &AddResult{Name: head.Name}
+	if opts.From != "" {
+		if err := semver.ValidateExact(opts.From); err != nil {
+			return nil, fmt.Errorf("%w: --from %s: %v", errs.ErrUsage, opts.From, err)
+		}
+		pol.Since = opts.From
+		for _, v := range registered {
+			if semver.Compare(v, opts.From) < 0 {
+				res.BelowFloor = append(res.BelowFloor, v)
+			}
+		}
+	}
+	candidates := validSemverTags(tags)
+	if len(opts.Tags) > 0 {
+		candidates = nil
+		for _, t := range opts.Tags {
+			if !contains(tags, t) {
+				return nil, fmt.Errorf("%w: %s has no tag %s", errs.ErrUsage, giturl, t)
+			}
+			if err := semver.ValidateExact(t); err != nil {
+				return nil, fmt.Errorf("%w: --tag %s: %v", errs.ErrUsage, t, err)
+			}
+			if pol.Since != "" && semver.Compare(t, pol.Since) < 0 {
+				return nil, fmt.Errorf("%w: %s is below %s's registration floor %s; lower it with --from %s",
+					errs.ErrUsage, t, head.Name, pol.Since, t)
+			}
+			pol.Excluded = removeStr(pol.Excluded, t) // asked for by name: no longer excluded
+			candidates = append(candidates, t)
+		}
+	}
 	var added []string
-	for _, tag := range validSemverTags(tags) {
+	for _, tag := range candidates {
 		if contains(registered, tag) {
 			continue
 		}
+		if ok, why := registrable(pol, tag); !ok {
+			res.Skipped = append(res.Skipped, tag+": "+why)
+			continue
+		}
 		if err := s.registerVersion(regDir, head.Name, head.UUID, giturl, tag, tmp); err != nil {
-			return "", nil, err
+			return nil, err
 		}
 		added = append(added, tag)
+	}
+	res.Added = added
+	policyChanged := policyKey(pol) != before
+	if policyChanged {
+		if err := manifest.SavePolicy(PolicyFile(regDir, head.Name), pol); err != nil {
+			return nil, err
+		}
 	}
 
 	_, known := reg.Packages[head.Name]
 	reg.Packages[head.Name] = types.PackageInfo{UUID: head.UUID, GitURL: giturl}
 	if err := manifest.SaveRegistry(MetaFile(regDir), reg); err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	// Keep the clone as the package mirror for later fetches.
 	mirror := s.d.Mirror(head.UUID)
@@ -160,16 +236,19 @@ func (s *Service) AddPackage(regName, giturl string) (string, []string, error) {
 			moved = true
 		}
 	}
-	if !known || len(added) > 0 {
+	if !known || len(added) > 0 || policyChanged {
 		msg := fmt.Sprintf("Add package %s (%d versions)", head.Name, len(added))
 		if known {
 			msg = fmt.Sprintf("Add %d version(s) to package %s", len(added), head.Name)
 		}
+		if policyChanged && len(added) == 0 && known {
+			msg = fmt.Sprintf("Update registration policy of %s", head.Name)
+		}
 		if err := s.commitPush(regDir, msg); err != nil {
-			return "", nil, err
+			return nil, err
 		}
 	}
-	return head.Name, added, nil
+	return res, nil
 }
 
 // firstRemoteBranch returns a branch to check out from a fresh clone whose HEAD

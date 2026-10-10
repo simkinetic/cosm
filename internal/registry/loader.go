@@ -106,8 +106,12 @@ func (l *Loader) Find(name, version string) ([]Location, error) {
 // ordered newest major first.
 func (l *Loader) latestPerMajor(regDir, name string) []string {
 	vs, _ := manifest.LoadVersions(VersionsFile(regDir, name))
+	yanked := yankedIn(regDir, name)
 	best := map[int]string{}
 	for _, v := range vs {
+		if _, y := yanked[v]; y {
+			continue // never newly selected
+		}
 		mj, err := semver.Major(v)
 		if err != nil {
 			continue
@@ -151,14 +155,18 @@ func (l *Loader) Versions(name string) (uuid, regName string, versions []string,
 	return "", "", nil, fmt.Errorf("%w: %s", errs.ErrPackageNotFound, name)
 }
 
-// Latest returns the highest registered version of name in a registry dir.
+// Latest returns the highest registered, non-yanked version of name in a registry dir.
 func (l *Loader) Latest(regDir, name string) (string, error) {
 	vs, err := manifest.LoadVersions(VersionsFile(regDir, name))
 	if err != nil {
 		return "", err
 	}
+	yanked := yankedIn(regDir, name)
 	best := ""
 	for _, v := range vs {
+		if _, y := yanked[v]; y {
+			continue
+		}
 		if best == "" || semver.Compare(v, best) > 0 {
 			best = v
 		}
@@ -185,4 +193,51 @@ func (l *Loader) NameByUUID(uuid string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// SelectableVersions is Versions without yanked versions: what may be picked
+// automatically (add's latest, upgrade, a downgrade cascade) or suggested.
+func (l *Loader) SelectableVersions(name string) (uuid, regName string, versions []string, err error) {
+	uuid, regName, all, err := l.Versions(name)
+	if err != nil {
+		return "", "", nil, err
+	}
+	yanked := yankedIn(l.d.Registry(regName), name)
+	for _, v := range all {
+		if _, y := yanked[v]; !y {
+			versions = append(versions, v)
+		}
+	}
+	return uuid, regName, versions, nil
+}
+
+// Yanked reports whether a registry listing name (with uuid) has yanked version,
+// and why. It makes Loader a resolve.YankChecker.
+func (l *Loader) Yanked(name, uuid, version string) (string, bool) {
+	refs, err := l.refs()
+	if err != nil {
+		return "", false
+	}
+	for _, ref := range refs {
+		regDir := l.d.Registry(ref.Name)
+		reg, err := manifest.LoadRegistry(MetaFile(regDir))
+		if err != nil {
+			continue
+		}
+		if pkg, ok := reg.Packages[name]; !ok || (uuid != "" && pkg.UUID != uuid) {
+			continue
+		}
+		if reason, y := yankedIn(regDir, name)[version]; y {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+func yankedIn(regDir, name string) map[string]string {
+	pol, err := manifest.LoadPolicy(PolicyFile(regDir, name))
+	if err != nil || pol.Yanked == nil {
+		return map[string]string{}
+	}
+	return pol.Yanked
 }

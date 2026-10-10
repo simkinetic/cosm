@@ -136,3 +136,17 @@ type BuildListEntry struct {
 type BuildList struct {
 	Dependencies map[string]BuildListEntry `json:"dependencies"`
 }
+
+// PackagePolicy is a registry's per-package registration policy (policy.json,
+// beside versions.json). It is what keeps a registry's choices from being undone
+// by the next `registry add` or `registry sync`, which otherwise register every
+// semver tag the package's repository has.
+type PackagePolicy struct {
+	// Since: tags below this version are never registered.
+	Since string `json:"since,omitempty"`
+	// Excluded: versions that were removed; add/sync won't register them again.
+	Excluded []string `json:"excluded,omitempty"`
+	// Yanked: version -> reason. Still registered and resolvable for anything that
+	// already requires it, but never newly selected.
+	Yanked map[string]string `json:"yanked,omitempty"`
+}

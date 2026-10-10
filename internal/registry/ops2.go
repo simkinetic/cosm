@@ -93,7 +93,75 @@ func (s *Service) RemoveVersion(regName, pkgName, version string) error {
 	if err := manifest.SaveVersions(VersionsFile(regDir, pkgName), kept); err != nil {
 		return err
 	}
+	// Remember the removal, so the next add or sync doesn't register the tag again
+	// (it still exists in the package's repository). `add --tag` undoes it.
+	pol, err := manifest.LoadPolicy(PolicyFile(regDir, pkgName))
+	if err != nil {
+		return err
+	}
+	if !contains(pol.Excluded, version) {
+		pol.Excluded = append(pol.Excluded, version)
+		sortSemver(pol.Excluded)
+	}
+	delete(pol.Yanked, version)
+	if err := manifest.SavePolicy(PolicyFile(regDir, pkgName), pol); err != nil {
+		return err
+	}
 	return s.commitPush(regDir, fmt.Sprintf("Remove %s@%s", pkgName, version))
+}
+
+// Yank marks a registered version as yanked, with a reason. A yanked version stays
+// registered and keeps resolving for anything that already requires it — builds
+// stay reproducible — but is never newly selected (cosm add, upgrade), and
+// resolving it warns. Prefer it to RemoveVersion for a bad release.
+func (s *Service) Yank(regName, pkgName, version, reason string) error {
+	return s.setYank(regName, pkgName, version, reason, true)
+}
+
+// Unyank clears a yank.
+func (s *Service) Unyank(regName, pkgName, version string) error {
+	return s.setYank(regName, pkgName, version, "", false)
+}
+
+func (s *Service) setYank(regName, pkgName, version, reason string, yank bool) error {
+	regDir := s.d.Registry(regName)
+	if _, err := manifest.LoadRegistry(MetaFile(regDir)); err != nil {
+		return fmt.Errorf("%w: %s", errs.ErrRegistryNotFound, regName)
+	}
+	vs, _ := manifest.LoadVersions(VersionsFile(regDir, pkgName))
+	if !contains(vs, version) {
+		return fmt.Errorf("%w: %s@%s not in %s", errs.ErrPackageNotFound, pkgName, version, regName)
+	}
+	pol, err := manifest.LoadPolicy(PolicyFile(regDir, pkgName))
+	if err != nil {
+		return err
+	}
+	_, was := pol.Yanked[version]
+	if yank {
+		if reason == "" {
+			reason = "yanked"
+		}
+		if was && pol.Yanked[version] == reason {
+			return nil
+		}
+		if pol.Yanked == nil {
+			pol.Yanked = map[string]string{}
+		}
+		pol.Yanked[version] = reason
+	} else {
+		if !was {
+			return nil
+		}
+		delete(pol.Yanked, version)
+	}
+	if err := manifest.SavePolicy(PolicyFile(regDir, pkgName), pol); err != nil {
+		return err
+	}
+	verb := "Yank"
+	if !yank {
+		verb = "Unyank"
+	}
+	return s.commitPush(regDir, fmt.Sprintf("%s %s@%s", verb, pkgName, version))
 }
 
 // UpdateRegistry pulls a registry from its remote (§12.6).

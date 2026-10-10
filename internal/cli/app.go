@@ -73,7 +73,7 @@ func buildRoot() *cobra.Command {
 		releaseCmd(), updateCmd(), registryCmd(),
 		buildCmd(), runCmd(), envCmd(), testCmd(), shellCmd(),
 		developCmd(), freeCmd(), upgradeCmd(), downgradeCmd(),
-		publishCmd(),
+		publishCmd(), verifyCmd(),
 	)
 	wireCompletions(root)
 	return root
@@ -539,6 +539,14 @@ func releaseCmd() *cobra.Command {
 			if m, lerr := manifest.LoadManifestFromDir(cwd); lerr == nil {
 				fmt.Print(unknownKeysNote(m)) // kept in the release, but worth a look
 			}
+			if planOnly, _ := cmd.Flags().GetBool("plan"); planOnly {
+				plan, err := s.PlanChain(cwd, opts)
+				if err != nil {
+					return err
+				}
+				fmt.Print(formatChainPlan(plan))
+				return nil
+			}
 			if dry, _ := cmd.Flags().GetBool("dry-run"); dry {
 				plan, err := s.PlanRelease(cwd, opts)
 				if err != nil {
@@ -562,6 +570,7 @@ func releaseCmd() *cobra.Command {
 	cmd.Flags().Bool("minor", false, "increment minor")
 	cmd.Flags().Bool("major", false, "increment major")
 	cmd.Flags().Bool("dry-run", false, "run the preflight and show exactly what would be committed, tagged, pushed, and registered; change nothing")
+	cmd.Flags().Bool("plan", false, "print the bottom-up release order of the co-developed stack under this project, with the minimum raises and commands for each step; change nothing")
 	return cmd
 }
 

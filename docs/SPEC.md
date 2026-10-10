@@ -952,11 +952,38 @@ a spawned subshell is one option, not the only one.
 - `--dry-run` prints the plan — each check, the commit, the tag, what is pushed to
   which origin URL, and the registry entry registering the tag will write — and
   changes nothing. It exits non-zero when the release would be refused.
+- `--plan` (`PlanChain`) orders the release of a **co-developed stack**: the project
+  plus every dependency it builds from a develop checkout, dependencies first
+  (topological, ties by name; a cycle is an error). Read-only. In that order a package
+  needs a release when it has commits since its release tag, uncommitted changes, or
+  no release tag yet — or when it must raise an in-stack dependency minimum, either to
+  the dependency's planned release or because the declared minimum is below the
+  dependency's current release. Since a raise edits the consumer's `cosm.json`,
+  need-to-release propagates to every consumer. The output is a runbook per step:
+  `cosm upgrade <dep> <to>` for each raise and the commit, `cosm release … --dry-run`,
+  and `cosm registry add`, so the next step's upgrade can find the new version. The
+  bump (`--patch` default, `--minor`, `--major`) applies to every released package; a
+  never-released package is released at its current version. An explicit version is
+  rejected: it can't apply to a whole stack.
 
 ### 12.5 Registry
 - `cosm registry init <name> <giturl>` (empty remote), `clone <giturl>`,
-  `add <name> <giturl> | <name> <pkg> v<ver>`, `rm <name> <pkg> [v<ver>] [--force]`,
-  `delete <name> [--force]`.
+  `add <name> <giturl> [--from v<ver>] [--tag v<ver>…]`, `rm <name> <pkg> [v<ver>]
+  [--force]`, `yank <name> <pkg> v<ver> [--reason …] [--undo]`, `delete <name> [--force]`.
+- **Registration policy** (per package, `<shard>/<pkg>/policy.json`; absent = none):
+  `since` (tags below it are never registered), `excluded` (removed versions, never
+  re-registered), `yanked` (version → reason). `add` and `sync` consult it, so a
+  registry's choices survive the next scan of the package's tags — without it,
+  `registry sync` re-registered a removed version, and a fresh registry filled with a
+  repository's stale tags. `add --from` sets `since`; `add --tag` registers named tags
+  once and lifts their exclusion; `rm` of a version adds it to `excluded`. It is a
+  separate file so that an older cosm rewriting `registry.json` can't drop it.
+- **Yank** keeps MVS reproducible: a yanked version stays registered and resolves for
+  anything requiring it, with a `W_YANKED` warning (`resolve.YankChecker`, optionally
+  implemented by the SpecLoader). It is never newly selected — `add`'s latest,
+  `upgrade`, a downgrade cascade, and suggestion hints all use non-yanked versions —
+  while an explicitly named version is still honoured. `registry check` skips yanked
+  versions; the release preflight warns on a yanked dependency minimum.
 - `cosm registry status <name>` — overview of one registry (evaluable anywhere):
   each registered package with its UUID and git URL, its known versions, and the
   registry clone's git sync state vs its remote (up-to-date / ahead / behind) and
@@ -970,6 +997,13 @@ a spawned subshell is one option, not the only one.
   `specs.json` whose uuid disagrees with the index is an integrity failure. Reports
   every failing version and exits non-zero, for registry CI. It checks the depot's
   local registry clones, so a registry depending on another needs both cloned.
+- `cosm verify <pkg>[@v<ver>] [--local] [--no-test] [--keep]` — clean-room check of a
+  released version: in a temporary depot made with `depot.New` (never through depot
+  resolution, so the global default, `$COSM_DEPOT`, and the caller's depot are
+  untouched), clone the registries from their remotes (`--local`: copy the local
+  clones and package mirrors, for offline use), export the version's source at its
+  registered commit with its `tree` verified, resolve with `resolve.NoDev`, build, and
+  run the tests. The temporary depot is removed afterwards unless `--keep`.
 - `cosm publish [--registry <r>] [--platform …] [--toolchain …] [--config …]` — build
   the current package for the target(s), upload each artifact to the store, and record
   its `binaries[]` metadata (buildKey + hash + descriptor) into a `binary`/`mixed`

@@ -122,6 +122,30 @@ func SaveVersions(path string, versions []string) error {
 	return writeJSON(path, versions)
 }
 
+// LoadPolicy reads a package's registration policy; absent means no policy.
+func LoadPolicy(path string) (*types.PackagePolicy, error) {
+	var p types.PackagePolicy
+	if err := readJSON(path, &p); err != nil {
+		if os.IsNotExist(err) {
+			return &p, nil
+		}
+		return nil, err
+	}
+	return &p, nil
+}
+
+// SavePolicy writes a package's registration policy, removing the file when the
+// policy is empty so unconfigured packages carry no extra file.
+func SavePolicy(path string, p *types.PackagePolicy) error {
+	if p.Since == "" && len(p.Excluded) == 0 && len(p.Yanked) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return writeJSON(path, p)
+}
+
 func LoadRegistryRefs(path string) ([]types.RegistryRef, error) {
 	var refs []types.RegistryRef
 	if err := readJSON(path, &refs); err != nil {

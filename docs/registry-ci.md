@@ -31,6 +31,13 @@ with the resolved commit + content-hash `tree`, and appending `versions.json`).
 Malformed tags (e.g. a tag whose `cosm.json` version doesn't match) are skipped
 with a warning, not treated as fatal.
 
+It honours each package's **registration policy** (`policy.json`): tags below the
+package's floor (`registry add --from`) and versions removed with `registry rm` are
+never registered, so a scheduled sync doesn't undo those choices. **Run sync with
+cosm v0.1.7 or later**: an older cosm doesn't read the policy and would register
+those versions again. To take a bad release out of use without breaking projects
+that already require it, `registry yank` it rather than removing it.
+
 ## `cosm registry check`
 
 ```sh

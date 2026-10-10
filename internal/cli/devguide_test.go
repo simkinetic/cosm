@@ -16,7 +16,7 @@ import (
 // currentGuideSHA is the hash of docs/dev-workspace.md as it stands. It exists so
 // that editing the guide forces you to record the previous text in
 // shippedGuideSHAs — otherwise depots holding that text would never be updated.
-const currentGuideSHA = "2535f64f6e76b5030a24cfc2f785a33fccee81780944320e223ebc819aba4a37"
+const currentGuideSHA = "f49e3c78733c7f797121f1111240c723c11ec42ef21fcde2bf361243b4f3f2b7"
 
 func TestGuideHistoryIsCurrent(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(moduleRoot, "docs", "dev-workspace.md"))

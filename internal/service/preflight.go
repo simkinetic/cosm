@@ -214,8 +214,12 @@ func (s *Service) checkReleaseDeps(p *ReleasePlan, m *types.Manifest) (types.Bui
 		}
 		label := fmt.Sprintf("%s %s %s is in a registry", kind, x.dep.Name, x.dep.Version)
 		if !missing[x.key] {
-			check := ReleaseCheck{Label: label}
-			p.Checks = append(p.Checks, check)
+			p.Checks = append(p.Checks, ReleaseCheck{Label: label})
+			uuid, _, _ := semver.SplitUnitKey(x.key)
+			if reason, y := s.Loader.Yanked(x.dep.Name, uuid, x.dep.Version); y {
+				p.Warnings = append(p.Warnings, fmt.Sprintf("%s %s: its minimum %s is yanked (%s); consumers will be warned. "+
+					"Raise it with: cosm upgrade %s", kind, x.dep.Name, x.dep.Version, reason, x.dep.Name))
+			}
 			continue
 		}
 		who := "consumers can't resolve this release"
@@ -223,7 +227,7 @@ func (s *Service) checkReleaseDeps(p *ReleasePlan, m *types.Manifest) (types.Bui
 			who = "the release's own tests can't be built from the registries"
 		}
 		hint := "It isn't published at all: release and register it first."
-		if _, _, vers, err := s.Loader.Versions(x.dep.Name); err == nil && len(vers) > 0 {
+		if _, _, vers, err := s.Loader.SelectableVersions(x.dep.Name); err == nil && len(vers) > 0 {
 			hint = fmt.Sprintf("Published: %s. Raise the minimum with: cosm upgrade %s",
 				strings.Join(vers, ", "), x.dep.Name)
 		}

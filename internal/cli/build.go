@@ -240,64 +240,8 @@ func testCmd() *cobra.Command {
 			cxxFlags, _ := cmd.Flags().GetString("cxxflags")
 			ldFlags, _ := cmd.Flags().GetString("ldflags")
 			m := materializer(s, buildTypeFromFlags(cmd), jobs, verbose, true)
-			// Build the whole test closure (regular deps + testDeps) so their install
-			// prefixes exist; the extension configures the project's tests against
-			// them (the root itself is (re)configured from source by the test verb).
-			built, err := m.BuildAll(bl)
-			if err != nil {
-				return err
-			}
-			var deps []ext.DepCtx
-			for _, key := range materialize.SortedKeys(bl) {
-				e, b := bl.Dependencies[key], built[key]
-				deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Prefix: b.Prefix, Descriptor: b.Descriptor})
-			}
-			// Tell the test runner how much parallelism it may use, so a harness can
-			// size its thread pool instead of guessing (and oversubscribing a big
-			// box). Inherited by the extension, the runner, and each test process.
-			m.Run.Env = append(m.Run.Env,
-				fmt.Sprintf("COSM_TEST_JOBS=%d", m.Opt.Jobs),
-				fmt.Sprintf("COSM_TEST_CPUS=%d", runtime.NumCPU()))
-			resp, err := m.Run.Test(root.Build, ext.TestRequest{
-				Project:  ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: cwd, Provides: root.Provides},
-				Platform: m.Opt.Platform,
-				Deps:     deps,
-				Config:    m.Opt.ConfigJSON(),
-				Jobs:      m.Opt.Jobs,
-				Verbose:   verbose,
-				KeepBuild: keepBuild,
-				CxxFlags:  cxxFlags,
-				LdFlags:   ldFlags,
-				Args:      args,
-			})
-			if err != nil {
-				return err
-			}
-			// On failure, surface the captured output — unless --verbose already
-			// streamed it live.
-			if resp.Log != "" && resp.Status != "ok" && !verbose {
-				if data, rerr := os.ReadFile(resp.Log); rerr == nil {
-					fmt.Print(string(data))
-				}
-			}
-			if keepBuild && resp.BuildDir != "" {
-				fmt.Printf("Build tree kept at %s\n", resp.BuildDir)
-			}
-			if resp.Status != "ok" {
-				return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log}
-			}
-			// Guardrail: a run that discovered zero tests is a vacuous pass — treat it
-			// as a test failure (same exit code), not a silent success.
-			if resp.Tests == 0 {
-				return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log,
-					Err: errors.New("no tests were discovered or run")}
-			}
-			if resp.Tests > 0 {
-				fmt.Printf("Tests ok (%d run)\n", resp.Tests)
-			} else {
-				fmt.Printf("Tests %s\n", resp.Status)
-			}
-			return nil
+			return runTests(m, root, cwd, bl, testRun{verbose: verbose, keepBuild: keepBuild,
+				cxxFlags: cxxFlags, ldFlags: ldFlags, args: args})
 		},
 	}
 	buildFlags(cmd)
@@ -415,4 +359,75 @@ func printWarns(warns []resolve.Warning) {
 	for _, w := range warns {
 		fmt.Fprintf(os.Stderr, "warning[%s]: %s\n", w.Code, w.Message)
 	}
+}
+
+// testRun carries the per-run test options.
+type testRun struct {
+	verbose, keepBuild bool
+	cxxFlags, ldFlags  string
+	args               []string
+}
+
+// runTests builds the test closure and runs the project's tests via its extension,
+// applying the guardrails: a failing test or a zero-test run is a failure. Shared
+// by `cosm test` and `cosm verify`.
+func runTests(m *materialize.Materializer, root *types.Manifest, projectDir string, bl types.BuildList, o testRun) error {
+	// Build the whole test closure (regular deps + testDeps) so their install
+	// prefixes exist; the extension configures the project's tests against
+	// them (the root itself is (re)configured from source by the test verb).
+	built, err := m.BuildAll(bl)
+	if err != nil {
+		return err
+	}
+	var deps []ext.DepCtx
+	for _, key := range materialize.SortedKeys(bl) {
+		e, b := bl.Dependencies[key], built[key]
+		deps = append(deps, ext.DepCtx{Name: e.Name, UUID: e.UUID, Version: e.Version, Prefix: b.Prefix, Descriptor: b.Descriptor})
+	}
+	// Tell the test runner how much parallelism it may use, so a harness can
+	// size its thread pool instead of guessing (and oversubscribing a big
+	// box). Inherited by the extension, the runner, and each test process.
+	m.Run.Env = append(m.Run.Env,
+		fmt.Sprintf("COSM_TEST_JOBS=%d", m.Opt.Jobs),
+		fmt.Sprintf("COSM_TEST_CPUS=%d", runtime.NumCPU()))
+	resp, err := m.Run.Test(root.Build, ext.TestRequest{
+		Project:   ext.PackageCtx{Name: root.Name, UUID: root.UUID, Version: root.Version, Source: projectDir, Provides: root.Provides},
+		Platform:  m.Opt.Platform,
+		Deps:      deps,
+		Config:    m.Opt.ConfigJSON(),
+		Jobs:      m.Opt.Jobs,
+		Verbose:   o.verbose,
+		KeepBuild: o.keepBuild,
+		CxxFlags:  o.cxxFlags,
+		LdFlags:   o.ldFlags,
+		Args:      o.args,
+	})
+	if err != nil {
+		return err
+	}
+	// On failure, surface the captured output — unless --verbose already
+	// streamed it live.
+	if resp.Log != "" && resp.Status != "ok" && !o.verbose {
+		if data, rerr := os.ReadFile(resp.Log); rerr == nil {
+			fmt.Print(string(data))
+		}
+	}
+	if o.keepBuild && resp.BuildDir != "" {
+		fmt.Printf("Build tree kept at %s\n", resp.BuildDir)
+	}
+	if resp.Status != "ok" {
+		return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log}
+	}
+	// Guardrail: a run that discovered zero tests is a vacuous pass — treat it
+	// as a test failure (same exit code), not a silent success.
+	if resp.Tests == 0 {
+		return &errs.BuildFailedError{Package: root.Name, Phase: "test", LogPath: resp.Log,
+			Err: errors.New("no tests were discovered or run")}
+	}
+	if resp.Tests > 0 {
+		fmt.Printf("Tests ok (%d run)\n", resp.Tests)
+	} else {
+		fmt.Printf("Tests %s\n", resp.Status)
+	}
+	return nil
 }

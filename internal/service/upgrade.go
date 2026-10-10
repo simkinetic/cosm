@@ -55,7 +55,7 @@ func (s *Service) Upgrade(projectDir, name, constraint string, latest bool) (str
 	}
 	_, major, _ := semver.SplitUnitKey(key)
 	cur := m.Deps[key].Version
-	_, _, versions, err := s.Loader.Versions(name)
+	_, _, versions, err := s.Loader.SelectableVersions(name)
 	if err != nil {
 		return "", "", err
 	}
@@ -195,7 +195,7 @@ func (s *Service) closureAtMost(aKey, name, version, uKey, target string) (bool,
 // maxVer) whose closure keeps uKey at or below target, or "" if none.
 func (s *Service) highestCompatible(aKey, name, maxVer, uKey, target string) (string, error) {
 	_, aMajor, _ := semver.SplitUnitKey(aKey)
-	_, _, vers, err := s.Loader.Versions(name)
+	_, _, vers, err := s.Loader.SelectableVersions(name)
 	if err != nil {
 		return "", err
 	}

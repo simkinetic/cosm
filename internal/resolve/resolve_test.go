@@ -7,6 +7,7 @@ package resolve
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 
 	"cosm/internal/errs"
@@ -324,5 +325,46 @@ func TestDeterministicAcrossOrder(t *testing.T) {
 	// c must be the max floor (v1.3.0).
 	if got := selectedVersions(func() types.BuildList { bl, _, _ := Resolve(root, L, nil); return bl }())["c"]; got != "v1.3.0" {
 		t.Errorf("c = %q want v1.3.0", got)
+	}
+}
+
+// yankLoader is a mapLoader that also reports yanked versions (a YankChecker).
+type yankLoader struct {
+	mapLoader
+	yanked map[string]string // "name@version" -> reason
+}
+
+func (y yankLoader) Yanked(name, uuid, version string) (string, bool) {
+	r, ok := y.yanked[name+"@"+version]
+	return r, ok
+}
+
+// TestYankedStillResolvesWithWarning: a yanked version that something requires is
+// still selected — MVS stays reproducible — but resolution warns, with the reason.
+// A plain SpecLoader (no YankChecker) is unaffected.
+func TestYankedStillResolvesWithWarning(t *testing.T) {
+	ml := mapLoader{"a@v1.1.0": spec("a", "ua", "v1.1.0")}
+	root := rootWith([3]string{"a", "ua", "v1.1.0"})
+
+	yl := yankLoader{ml, map[string]string{"a@v1.1.0": "broken ABI"}}
+	bl, warns, err := Resolve(root, yl, NoDev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bl.Dependencies[semver.UnitKey("ua", 1)].Version; got != "v1.1.0" {
+		t.Fatalf("selected %s, want the required (yanked) v1.1.0", got)
+	}
+	found := false
+	for _, w := range warns {
+		if w.Code == "W_YANKED" && strings.Contains(w.Message, "broken ABI") && strings.Contains(w.Message, "cosm upgrade a") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("want a W_YANKED warning with reason and fix, got %v", warns)
+	}
+
+	if _, warns, _ := Resolve(root, ml, NoDev); len(warns) != 0 {
+		t.Errorf("a loader without yank info must not warn: %v", warns)
 	}
 }

@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"cosm/internal/errs"
+	"cosm/internal/manifest"
+	"cosm/internal/registry"
 	"cosm/internal/service"
 	"cosm/internal/types"
 )
@@ -25,7 +27,7 @@ func registryCmd() *cobra.Command {
 	cmd.AddCommand(
 		registryInitCmd(), registryCloneCmd(), registryAddCmd(),
 		registryRmCmd(), registryStatusCmd(), registryDeleteCmd(),
-		registrySyncCmd(), registryCheckCmd(),
+		registrySyncCmd(), registryCheckCmd(), registryYankCmd(),
 	)
 	return cmd
 }
@@ -58,8 +60,12 @@ func registryCheckCmd() *cobra.Command {
 			if latest {
 				scope = "the latest version of each major line"
 			}
-			fmt.Printf("Checked %s: %d versions of %d packages in %s (local clones).\n",
-				scope, res.Versions, res.Packages, strings.Join(res.Registries, ", "))
+			skipped := ""
+			if res.Yanked > 0 {
+				skipped = fmt.Sprintf("; %d yanked version(s) skipped", res.Yanked)
+			}
+			fmt.Printf("Checked %s: %d versions of %d packages in %s (local clones%s).\n",
+				scope, res.Versions, res.Packages, strings.Join(res.Registries, ", "), skipped)
 			for _, p := range res.Problems {
 				v := p.Version
 				if v != "" {
@@ -129,27 +135,82 @@ func registryCloneCmd() *cobra.Command {
 }
 
 func registryAddCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "add <name> <giturl>",
 		Short: "Register a package and its released versions (idempotent; picks up new tags)",
-		Args:  cobra.ExactArgs(2),
+		Long: "Register a package and every released version its registration policy allows;\n" +
+			"on an already-registered package, pick up new tags. By default that is every\n" +
+			"vX.Y.Z tag in the repository. --from sets a floor that this and every later add\n" +
+			"or sync respect; --tag registers just the named tags, this once.",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := newService()
 			if err != nil {
 				return err
 			}
-			name, added, err := s.Reg.AddPackage(args[0], args[1])
+			var opts registry.AddOptions
+			opts.From, _ = cmd.Flags().GetString("from")
+			opts.Tags, _ = cmd.Flags().GetStringArray("tag")
+			res, err := s.Reg.AddPackageWith(args[0], args[1], opts)
 			if err != nil {
 				return err
 			}
-			if len(added) == 0 {
-				fmt.Printf("Package '%s' already up to date in '%s'\n", name, args[0])
-			} else {
-				fmt.Printf("Added '%s' (%d version(s)) to '%s'\n", name, len(added), args[0])
+			switch {
+			case len(res.Added) > 0:
+				fmt.Printf("Added '%s' (%d version(s): %s) to '%s'\n", res.Name, len(res.Added), strings.Join(res.Added, ", "), args[0])
+			default:
+				fmt.Printf("Package '%s' already up to date in '%s'\n", res.Name, args[0])
+			}
+			if opts.From != "" {
+				fmt.Printf("Registration floor for '%s' is now %s: older tags won't be registered by add or sync.\n", res.Name, opts.From)
+			}
+			for _, sk := range res.Skipped {
+				fmt.Printf("  not registered: %s\n", sk)
+			}
+			if len(res.BelowFloor) > 0 {
+				fmt.Printf("  already registered below the floor (kept; remove with 'cosm registry rm %s %s <version>'): %s\n",
+					args[0], res.Name, strings.Join(res.BelowFloor, ", "))
 			}
 			return nil
 		},
 	}
+	cmd.Flags().String("from", "", "register only tags at or above this version, now and in every later add/sync")
+	cmd.Flags().StringArray("tag", nil, "register only this tag (repeatable; one-off)")
+	return cmd
+}
+
+func registryYankCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "yank <name> <pkg> v<version>",
+		Short: "Mark a version as yanked: still resolves where required, never newly selected",
+		Long: "Yank a bad release without breaking anyone. A yanked version stays registered and\n" +
+			"keeps resolving for every project that already requires it, so builds stay\n" +
+			"reproducible; resolving it prints a warning. It is never picked by 'cosm add' or\n" +
+			"'cosm upgrade', nor suggested. Use 'registry rm' only to remove a version entirely.",
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, err := newService()
+			if err != nil {
+				return err
+			}
+			if undo, _ := cmd.Flags().GetBool("undo"); undo {
+				if err := s.Reg.Unyank(args[0], args[1], args[2]); err != nil {
+					return err
+				}
+				fmt.Printf("Unyanked %s@%s in '%s'\n", args[1], args[2], args[0])
+				return nil
+			}
+			reason, _ := cmd.Flags().GetString("reason")
+			if err := s.Reg.Yank(args[0], args[1], args[2], reason); err != nil {
+				return err
+			}
+			fmt.Printf("Yanked %s@%s in '%s'\n", args[1], args[2], args[0])
+			return nil
+		},
+	}
+	cmd.Flags().String("reason", "", "why it was yanked (shown in the warning)")
+	cmd.Flags().Bool("undo", false, "clear the yank")
+	return cmd
 }
 
 func registryRmCmd() *cobra.Command {
@@ -174,7 +235,8 @@ func registryRmCmd() *cobra.Command {
 				if err := s.Reg.RemoveVersion(args[0], args[1], args[2]); err != nil {
 					return err
 				}
-				fmt.Printf("Removed %s@%s from '%s'\n", args[1], args[2], args[0])
+				fmt.Printf("Removed %s@%s from '%s'. add/sync won't register it again "+
+					"(undo with 'cosm registry add %s <giturl> --tag %s').\n", args[1], args[2], args[0], args[0], args[2])
 				return nil
 			}
 			if err := s.Reg.RemovePackage(args[0], args[1]); err != nil {
@@ -204,11 +266,30 @@ func registryStatusCmd() *cobra.Command {
 			}
 			fmt.Printf("Registry '%s' [%s] (%d packages)\n", reg.Name, reg.Kind, len(pkgs))
 			for _, p := range pkgs {
-				vers := strings.Join(p.Versions, ", ")
+				pol, _ := manifest.LoadPolicy(registry.PolicyFile(s.D.Registry(args[0]), p.Name))
+				shown := make([]string, 0, len(p.Versions))
+				for _, v := range p.Versions {
+					if _, y := pol.Yanked[v]; y {
+						v += " (yanked)"
+					}
+					shown = append(shown, v)
+				}
+				vers := strings.Join(shown, ", ")
 				if vers == "" {
 					vers = "(no versions)"
 				}
-				fmt.Printf("  - %s: %s\n", p.Name, vers)
+				var extra []string
+				if pol.Since != "" {
+					extra = append(extra, "registers from "+pol.Since)
+				}
+				if len(pol.Excluded) > 0 {
+					extra = append(extra, "removed: "+strings.Join(pol.Excluded, ", "))
+				}
+				policy := ""
+				if len(extra) > 0 {
+					policy = "  [" + strings.Join(extra, "; ") + "]"
+				}
+				fmt.Printf("  - %s: %s%s\n", p.Name, vers, policy)
 			}
 			return nil
 		},

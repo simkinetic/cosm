@@ -53,6 +53,13 @@ func (noDev) Override(string, int) (types.Manifest, string, bool) {
 	return types.Manifest{}, "", false
 }
 
+// YankChecker is optionally implemented by a SpecLoader to report versions a
+// registry has yanked. A yanked version still resolves when something requires it
+// (MVS stays reproducible); resolution only warns.
+type YankChecker interface {
+	Yanked(name, uuid, version string) (reason string, ok bool)
+}
+
 // NoDev is a DevOverlay with no overrides.
 var NoDev DevOverlay = noDev{}
 
@@ -203,6 +210,15 @@ func resolve(root *types.Manifest, loader SpecLoader, dev DevOverlay, includeTes
 			Build:    sp.Build,
 			Provides: sp.Provides,
 			DepKeys:  depKeysOf(sp.Deps),
+		}
+		if yc, ok := loader.(YankChecker); ok {
+			if reason, y := yc.Yanked(sp.Name, uuid, ver); y {
+				warns = append(warns, Warning{
+					Code: "W_YANKED",
+					Message: fmt.Sprintf("%s %s is yanked (%s). It still resolves because it is required, "+
+						"but nothing should depend on it: raise the minimum (cosm upgrade %s)", sp.Name, ver, reason, sp.Name),
+				})
+			}
 		}
 		// v0 policy: warn if a higher v0.y was selected than something requested (§6.3).
 		if major == 0 {

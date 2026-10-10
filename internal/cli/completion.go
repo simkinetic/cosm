@@ -27,7 +27,7 @@ func wireCompletions(root *cobra.Command) {
 	// this, cobra returns ShellCompDirectiveDefault and the shell falls back to file
 	// completion (so `cosm status <TAB>` would list the directory). Flag-value
 	// completion (e.g. --path) is unaffected.
-	for _, n := range []string{"setup", "init", "status", "add", "build", "env", "shell", "test", "release", "publish"} {
+	for _, n := range []string{"setup", "init", "status", "add", "build", "env", "shell", "test", "release", "publish", "verify"} {
 		if c := sub[n]; c != nil && c.ValidArgsFunction == nil {
 			c.ValidArgsFunction = completeNoFile
 		}
@@ -60,7 +60,7 @@ func wireCompletions(root *cobra.Command) {
 		for _, c := range reg.Commands() {
 			rsub[c.Name()] = c
 		}
-		for _, n := range []string{"status", "rm", "delete", "sync", "add", "check"} {
+		for _, n := range []string{"status", "rm", "delete", "sync", "add", "check", "yank"} {
 			if c := rsub[n]; c != nil {
 				c.ValidArgsFunction = completeRegistriesFirst
 			}

@@ -19,6 +19,11 @@ This is the vNext implementation of the design in [docs/SPEC.md](docs/SPEC.md).
 - **Source & binary registries** — publish prebuilt artifacts to a binary/mixed
   registry (`cosm publish`) and consume them with no source access; access is
   gated by registry permissions (clearance tiers, §8.5).
+- **Safe releases** — `cosm release` runs a preflight (clean tree, remote, every
+  dependency minimum registered) and refuses before changing anything; `--dry-run`
+  shows the whole plan; `--plan` orders a co-developed stack's releases bottom-up;
+  `cosm verify` builds a release from the registries alone; `registry yank` retires a
+  bad version without breaking anyone.
 - **Co-development** — shared develop checkouts with per-project opt-in; `--source`
   points a build or test at any checkout, so agents working in parallel git
   worktrees don't collide.
@@ -137,8 +142,9 @@ cosm run -- lua src/main.lua                 # run in the assembled environment
 | Project | `init`, `status`, `add`, `rm`, `upgrade`, `downgrade`, `release` |
 | Build/run | `build`, `run`, `test`, `env`, `shell` |
 | Develop | `develop`, `free` |
-| Registry | `registry init [--kind]/clone/add/rm/status/delete/sync`, `update` |
+| Registry | `registry init [--kind]/clone/add/rm/yank/status/delete/sync/check`, `update` |
 | Binaries | `publish` (to a binary/mixed registry) |
+| Verification | `verify` (build and test a released version from the registries alone) |
 | Shell | `completion` (bash, zsh, fish, powershell) |
 
 See the **[reference](docs/reference.md)** for every command's arguments, flags,

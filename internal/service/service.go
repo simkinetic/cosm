@@ -268,7 +268,7 @@ func (s *Service) Add(projectDir, name, version string, opts AddOpts, choose Reg
 		// A known package with an unfindable explicit version: say what's actually
 		// available so a stale clone or a typo is obvious (vs a truly unknown name).
 		if version != "" {
-			if _, reg, vers, verr := s.Loader.Versions(name); verr == nil && len(vers) > 0 {
+			if _, reg, vers, verr := s.Loader.SelectableVersions(name); verr == nil && len(vers) > 0 {
 				hint := ""
 				if opts.Offline {
 					hint = "; run 'cosm update' or drop --offline"

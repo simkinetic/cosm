@@ -47,6 +47,11 @@ func (s *Service) SyncRegistry(regName string) (added map[string][]string, warni
 			continue
 		}
 		existing, _ := manifest.LoadVersions(VersionsFile(regDir, name))
+		pol, perr := manifest.LoadPolicy(PolicyFile(regDir, name))
+		if perr != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: policy.json: %v", name, perr))
+			continue
+		}
 		tags, terr := s.git.ListTags(mirror)
 		if terr != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: list tags: %v", name, terr))
@@ -54,6 +59,11 @@ func (s *Service) SyncRegistry(regName string) (added map[string][]string, warni
 		}
 		for _, tag := range validSemverTags(tags) {
 			if contains(existing, tag) {
+				continue
+			}
+			// Never undo the registry's choices: a tag below the package's floor, or
+			// a version removed earlier, stays out.
+			if ok, _ := registrable(pol, tag); !ok {
 				continue
 			}
 			if rerr := s.registerVersion(regDir, name, pkg.UUID, pkg.GitURL, tag, mirror); rerr != nil {

@@ -25,6 +25,11 @@ func PackageDir(registryDir, name string) string {
 	return filepath.Join(registryDir, Shard(name), name)
 }
 
+// PolicyFile is a package's registration policy (since / excluded / yanked).
+func PolicyFile(registryDir, name string) string {
+	return filepath.Join(PackageDir(registryDir, name), "policy.json")
+}
+
 func VersionsFile(registryDir, name string) string {
 	return filepath.Join(PackageDir(registryDir, name), "versions.json")
 }

@@ -23,7 +23,7 @@ Always confirm before running (each time, never silently):
 
 - `cosm release …` — bumps the version, tags, and pushes a release.
 - `cosm publish …` — uploads a binary artifact to a registry.
-- `cosm registry add/rm/sync/init/clone/delete …` — mutates a shared registry.
+- `cosm registry add/rm/yank/sync/init/clone/delete …` — mutates a shared registry.
 - `git push …`, `git tag …` — pushing branches or tags to a shared remote.
 
 Example ask: "Heads up — `cosm release --patch` will tag **v0.2.1** and push the
@@ -40,6 +40,15 @@ Two related commands are **read-only, so run them freely**:
   `origin` — rather than asking to release something that would be refused.
 - `cosm registry check [<registry>]` confirms every registered version resolves
   within the registries, and names the ones that don't.
+- `cosm release --plan` (from the top project of a co-developed stack) prints the
+  order to release the whole stack in, dependencies first, with the minimum raises
+  and exact commands for each step. Use it before releasing more than one package,
+  and present it to the user. Each `cosm release` and `cosm registry add` in it still
+  needs its own approval.
+- `cosm verify <pkg>[@v<version>]` builds and tests a released version in a
+  throwaway depot from the registries alone — the clean-depot check. It never touches
+  the user's depot or default; use it after releasing to confirm consumers can build
+  what was published.
 
 ---
 

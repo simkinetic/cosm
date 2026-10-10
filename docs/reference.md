@@ -180,6 +180,19 @@ tested may not be what consumers get.
   minimums, build system, license, and which registries already list the package).
   Changes nothing. Exits non-zero when the release would be refused, so it can gate
   CI, and its output is a complete summary to approve a release from.
+- `--plan` — for a **co-developed stack**: print the order in which to release the
+  project and every dependency it builds from a develop checkout, dependencies first,
+  as a runbook with the exact commands per step. Read-only. A package is in the plan
+  when it has commits since its release tag, uncommitted changes, or was never
+  released — or when it must **raise a dependency minimum**: to a dependency's new
+  release, or because it declares less than that dependency's current release (it
+  was developed against newer code than it requires). Raising a minimum changes the
+  package, so a change anywhere propagates up to every consumer in the stack. Each
+  step lists the `cosm upgrade` raises, the commit, `cosm release … --dry-run`, and the
+  `cosm registry add` that lets the next step's upgrade find it. `--patch` (default),
+  `--minor`, or `--major` sets the bump for every released package; a package never
+  released is released at its current version. Problems a step must fix first (no
+  `origin`, uncommitted changes, a detached HEAD) are listed under it.
 
 ### Build & run
 
@@ -309,13 +322,38 @@ in precedence order: an already-adopted workspace unit, then a resolved dependen
 **`cosm registry clone <giturl>`** — clone an existing registry into the depot.
 
 **`cosm registry add <name> <giturl>`** — register a package and its released
-versions. Idempotent: on an already-registered package it picks up any new tags.
+versions. Idempotent: on an already-registered package it picks up any new tags. By
+default that is every `vX.Y.Z` tag in the repository — including stale old ones.
+- `--from v<version>` — set the package's **registration floor**: tags below it are
+  not registered, by this add or by any later `add` or `registry sync`. Use it when
+  starting a fresh registry from a repository that carries old tags. Versions already
+  registered below a new floor are kept (and listed); remove them with `registry rm`.
+- `--tag v<version>` (repeatable) — register only the named tags, this once. It
+  doesn't change what a later sync picks up (use `--from` for that). Naming a version
+  that was removed with `registry rm` registers it again.
+
+  Tags the policy keeps out are listed as "not registered", with the reason.
 
 **`cosm registry rm <name> <pkg> [v<version>]`** — remove a package (or a single
-version) from a registry.
+version) from a registry. A removed version is **remembered**: the tag still exists in
+the package's repository, but no later `add` or `sync` registers it again
+(`registry add --tag` does, explicitly). Removing a version breaks every project that
+requires it; for a bad release, prefer `registry yank`.
 - `-f, --force` — skip the confirmation prompt.
 
-**`cosm registry status <name>`** — list a registry's packages and their versions.
+**`cosm registry yank <name> <pkg> v<version>`** — mark a version as yanked. It stays
+registered and keeps resolving for every project that already requires it, so builds
+stay reproducible, but resolving it warns (`W_YANKED`, with the reason and the fix),
+and it is never newly selected: `cosm add` and `cosm upgrade` pass over it, and no
+hint suggests it. Naming it explicitly (`cosm add <pkg> v<version>`) still works.
+`registry check` skips yanked versions, and the release preflight warns when a
+dependency minimum is yanked.
+- `--reason "<text>"` — why, shown in the warning.
+- `--undo` — clear the yank.
+
+**`cosm registry status <name>`** — list a registry's packages and their versions,
+marking yanked versions and showing each package's registration floor and removed
+versions.
 
 **`cosm registry delete <name>`** — delete a registry from the local depot.
 - `-f, --force` — skip the confirmation prompt.
@@ -337,6 +375,22 @@ the latest. Read-only.
 **`cosm update [registry]`** — sync registries with their remotes (a read-only
 `git pull`). With no argument it updates every registry; with a name, just that
 one.
+
+### Verification
+
+**`cosm verify <pkg>[@v<version>]`** — check that a released version works for a
+consumer starting from nothing. In a fresh, temporary depot it clones your registries
+from their remotes, fetches the version's source at its registered commit (checking
+its content hash), resolves its dependencies from the registries alone — no develop
+checkouts, no `--source` — then builds it and runs its tests. Your depot,
+`$COSM_DEPOT`, and the global default are never touched, and the temporary depot is
+deleted afterwards. With no version, the newest non-yanked one. Exits non-zero on any
+failure, with the cause (`cmaps-macro@v0.1.0` not found, a failing test, …).
+- `--local` — copy your local registry clones and package mirrors instead of cloning,
+  to verify offline (it then reflects your clones, not necessarily what is published).
+- `--no-test` — build only.
+- `--keep` — keep the temporary depot and print its path.
+- `--debug` / `--release`, `--jobs <n>`, `-v` — as for `cosm build`.
 
 ### Binaries
 
@@ -470,6 +524,27 @@ list is `<registry>/<SHARD>/<pkg>/versions.json`.
   registry to withhold source.
 - `binaries` — prebuilt artifacts (binary/mixed registries only); each addressed
   by URL + hash, matched by `buildKey`, with a relocatable consumption descriptor.
+
+### `policy.json` — a package's registration policy
+
+Beside a package's `versions.json` in the registry; absent when the package has no
+policy.
+
+```json
+{ "since": "v0.2.0",
+  "excluded": ["v0.2.3"],
+  "yanked": { "v0.2.1": "breaks the ABI" } }
+```
+
+- `since` — tags below this are never registered (`registry add --from`).
+- `excluded` — versions removed with `registry rm`; `add`/`sync` won't register
+  them again.
+- `yanked` — version → reason (`registry yank`): still registered and resolvable,
+  never newly selected.
+
+It is a separate file so that a cosm older than v0.1.7, which rewrites
+`registry.json` from its own data model, can't drop it. Such an older cosm doesn't
+*honour* it either, though: run registry CI (`registry sync`) with v0.1.7 or later.
 
 ### `config.json` — depot config (`$COSM_DEPOT/config.json`)
 

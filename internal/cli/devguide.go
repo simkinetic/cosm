@@ -24,6 +24,7 @@ import (
 // previous text's hash here (TestGuideHistoryIsCurrent fails until you do).
 var shippedGuideSHAs = map[string]bool{
 	"f2b15a143670f5424b8c5cd7e0b567a22a31fa819b3c0b3883ba08e10da5e3b2": true, // v0.1.6
+	"2535f64f6e76b5030a24cfc2f785a33fccee81780944320e223ebc819aba4a37": true, // a4c302f (unreleased)
 	"147d62a4e5c39515eb23957b1e2a9c1016b0a6a02262a510adf8b2bf80162980": true,
 	"1dc50dc3454803e8e06a44178be7629e90f38233a6e3e2bb5281dc806b0c08ad": true,
 	"66e6b37f4f8dc88c00f5943fb114e631ea76787dfbff05e0bdfcddad1339a7e8": true,

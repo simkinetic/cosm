@@ -100,3 +100,67 @@ func depList(deps map[string]types.Dependency) string {
 	sort.Strings(out)
 	return strings.Join(out, ", ")
 }
+
+// formatChainPlan renders a stack release plan as a runbook: one numbered step per
+// package to release, in dependency order, with the exact commands.
+func formatChainPlan(p *service.ChainPlan) string {
+	var b strings.Builder
+	n := 0
+	for _, st := range p.Steps {
+		if st.Release || st.Register {
+			n++
+		}
+	}
+	fmt.Fprintf(&b, "Release plan for the stack under %s, bottom-up (%s): %d of %d package(s) to release or register.\n",
+		p.Root, p.Bump, n, len(p.Steps))
+	b.WriteString("Read-only: nothing is changed. Run each step's commands in order; a step's\n" +
+		"'cosm upgrade' needs the step before it released and registered.\n\n")
+	i := 0
+	for _, st := range p.Steps {
+		if !st.Release && !st.Register {
+			fmt.Fprintf(&b, "  -  %-24s %-10s up to date (released, registered, nothing since)\n", st.Name, st.From)
+			continue
+		}
+		i++
+		ver := st.From
+		if st.Release && st.To != st.From {
+			ver = st.From + " -> " + st.To
+		}
+		why := strings.Join(st.Reasons, "; ")
+		for _, r := range st.Raises {
+			if why != "" {
+				why += "; "
+			}
+			why += fmt.Sprintf("raises %s %s -> %s", r.Dep, r.From, r.To)
+		}
+		fmt.Fprintf(&b, "  %d. %-24s %-20s %s\n", i, st.Name, ver, why)
+		for _, pr := range st.Problems {
+			fmt.Fprintf(&b, "       ! %s\n", pr)
+		}
+		fmt.Fprintf(&b, "       cd %s\n", st.Dir)
+		if len(st.Raises) > 0 {
+			var reqs []string
+			for _, r := range st.Raises {
+				fmt.Fprintf(&b, "       cosm upgrade %s %s\n", r.Dep, r.To)
+				reqs = append(reqs, r.Dep+" "+r.To)
+			}
+			fmt.Fprintf(&b, "       git commit -am %q && git push\n", "Require "+strings.Join(reqs, ", "))
+		}
+		if st.Release {
+			rel := p.Bump
+			if st.FirstRelease {
+				rel = st.To
+			}
+			fmt.Fprintf(&b, "       cosm release %s --dry-run   # check, then without --dry-run\n", rel)
+		}
+		reg, remote := "<registry>", st.Remote
+		if len(st.Registries) > 0 {
+			reg = st.Registries[0]
+		}
+		if remote == "" {
+			remote = "<giturl>"
+		}
+		fmt.Fprintf(&b, "       cosm registry add %s %s\n", reg, remote)
+	}
+	return b.String()
+}
