@@ -19,16 +19,79 @@ This is the vNext implementation of the design in [docs/SPEC.md](docs/SPEC.md).
 - **Source & binary registries** — publish prebuilt artifacts to a binary/mixed
   registry (`cosm publish`) and consume them with no source access; access is
   gated by registry permissions (clearance tiers, §8.5).
-- **Co-development** — shared develop checkouts with per-project opt-in.
+- **Co-development** — shared develop checkouts with per-project opt-in; `--source`
+  points a build or test at any checkout, so agents working in parallel git
+  worktrees don't collide.
 
-## Build
+## Install
+
+cosm is three programs: `cosm` itself and the two reference extensions,
+`cosm-ext-lua` and `cosm-ext-cmake`. Each
+[release](https://github.com/simkinetic/cosm/releases) ships all three, prebuilt for
+Linux and macOS on `amd64` and `arm64`. Windows is not supported.
+
+### From a release
+
+This installs the latest release into `~/.local/bin`:
+
+```sh
+os=$(uname -s | tr '[:upper:]' '[:lower:]')      # linux or darwin
+arch=$(uname -m)
+case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
+base=https://github.com/simkinetic/cosm/releases/latest/download
+mkdir -p ~/.local/bin
+for bin in cosm cosm-ext-lua cosm-ext-cmake; do
+  curl -fsSL -o ~/.local/bin/$bin "$base/$bin-$os-$arch"
+  chmod +x ~/.local/bin/$bin
+done
+```
+
+Then make sure `~/.local/bin` is on your `PATH` (add the line to your shell profile),
+check the install, and create the depot:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+cosm --version
+cosm setup
+```
+
+`cosm --version` prints the release, the commit it was built from, and the path of
+the binary that answered. If it reports anything other than the release you just
+installed, an older `cosm` comes first on your `PATH` (an old install in
+`/usr/bin`, say). Run the new one by its path, `~/.local/bin/cosm --version`: it
+names the binary that plain `cosm` resolves to. Remove that one, or put
+`~/.local/bin` ahead of it.
+
+To install a specific version instead of the latest, replace `latest/download` with
+`download/v0.1.5` (or any other tag). To upgrade, run the same commands again.
+
+**Downloading by hand.** Each asset is named `<program>-<os>-<arch>`, for example
+`cosm-ext-cmake-linux-amd64`. After downloading:
+
+- **Rename it to drop the `-<os>-<arch>` suffix.** cosm looks extensions up by their
+  exact name, `cosm-ext-<id>`, so `cosm-ext-cmake-linux-amd64` must become
+  `cosm-ext-cmake`.
+- Make it executable: `chmod +x <file>`.
+- Put all three on your `PATH`. An extension can instead go in the depot, at
+  `$COSM_DEPOT/extensions/<id>/cosm-ext-<id>`; a copy there takes precedence over
+  the one on `PATH`.
+- On macOS, a file downloaded with a browser is quarantined, and the first run is
+  blocked. Clear it with `xattr -d com.apple.quarantine <file>`. (`curl`, as above,
+  doesn't set the quarantine flag.)
+
+**What the extensions need.** `cosm-ext-cmake` runs CMake (and `ctest` for
+`cosm test`) with your C++ compiler; `cosm-ext-lua` needs a `lua` interpreter to run
+tests. cosm itself needs `git`.
+
+### From source
+
+With Go 1.24 or later:
 
 ```sh
 make build extensions      # produces ./cosm, ./cosm-ext-lua, ./cosm-ext-cmake
 ```
 
-Put all three on your `PATH` (or install extensions under
-`$COSM_DEPOT/extensions/<id>/cosm-ext-<id>`).
+Put all three on your `PATH`, or put the extensions in the depot as described above.
 
 ## Documentation
 
@@ -76,6 +139,7 @@ cosm run -- lua src/main.lua                 # run in the assembled environment
 | Develop | `develop`, `free` |
 | Registry | `registry init [--kind]/clone/add/rm/status/delete/sync`, `update` |
 | Binaries | `publish` (to a binary/mixed registry) |
+| Shell | `completion` (bash, zsh, fish, powershell) |
 
 See the **[reference](docs/reference.md)** for every command's arguments, flags,
 and behavior.
@@ -92,7 +156,8 @@ internal/
   semver       v-prefixed SemVer 2.0.0 + compatibility-unit keys
   resolve      Minimal Version Selection (pure)
   buildkey     DAG-aware artifact cache key
-  treehash     content hash of a source tree (integrity anchor)
+  treehash     content hash of a source tree (integrity anchor, build-key input)
+  artifact     pack, store, fetch, and verify binary artifacts (binary registries)
   errs         typed error taxonomy + exit codes
   gitx         Git behind an interface
   depot        depot layout, config, lock
@@ -100,6 +165,7 @@ internal/
   registry     sharded registry layout, disk SpecLoader, mutations
   develop      develop overlay (workspace + per-project enrollment)
   ext          extension protocol + runner
+  ext/extlib   helpers shared by the reference extensions
   materialize  fetch/verify sources, topological build, env assembly
   service      project-level operations
   cli          cobra command tree

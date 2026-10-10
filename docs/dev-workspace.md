@@ -37,14 +37,23 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
   package manifest is `cosm.json`. The namespace is major-versioned (`foo@v0`) so
   two majors can coexist; where a language can't spell `@` (C++/CMake) the binding
   is `foo_v0` (include prefix, C++ namespace, CMake package/target).
-- **Build** the current package and its dependencies: `cosm build`
+- **Build** the current package and its dependencies: `cosm build`. It prints a line
+  per package as it goes (`[2/5] linalg v0.3.0 (14.2s)`, or `(cached)`). For a long
+  build, add `-v` to stream the compiler output live; `-v` works the same on `run`,
+  `test`, `env`, and `shell`.
 - **Run** a command in the built environment: `cosm run -- <cmd>`
   (e.g. `cosm run -- lua src/main.lua`, or `cosm run -- ./build/app`)
 - **Test**: `cosm test` — builds with test-only deps and runs the suite. It is a
   trustworthy gate: it **fails** on a failing test AND on a zero-test run (so a
-  mis-configured suite can't pass vacuously). `--verbose` prints full output; `-- <args>`
+  mis-configured suite can't pass vacuously). `-v` streams the configure, build, and
+  test output live; without it the output is shown only on failure. `-- <args>`
   forwards to the runner (e.g. `ctest`); `--keep-build` + `--cxxflags`/`--ldflags` let a
   coverage tool ride the run.
+  - The tests see `COSM_TEST_JOBS` (the `--jobs` value, by default the CPU count) and
+    `COSM_TEST_CPUS` (CPUs available). If you write or change a test harness that
+    starts threads, size the pool from these, never from a hard-coded number or the
+    raw core count: on a large machine, a runner that executes tests in parallel and
+    gives every test all the cores oversubscribes badly.
 - **Inspect** resolution: `cosm status` (shows the resolved build list; `(develop)`
   marks packages taken live from this workspace). `build`/`test`/`run`/`env`/`status`
   all report the same develop advisories, so they never disagree on what you build
@@ -110,7 +119,9 @@ release. This is a cosm command that publishes, so it needs your approval. Run i
   `cosm setup` changes the global default only when no depot was named. If a warning
   says a develop checkout is missing, read the depot path it prints — the usual cause
   is running against a different depot than you meant. `cosm --version` shows the
-  commit and path of the binary actually running, in case an older `cosm` shadows it.
+  release, commit, and path of the binary that ran. If that isn't the cosm you
+  expect, an older one is earlier on `PATH`; running the expected one by its full
+  path with `--version` names the binary that plain `cosm` resolves to.
 - **Detecting dependency changes** (cache keys, "did anything below me move?"): use
   `cosm status --hash` — a stable digest of the resolved dependencies that also moves
   when a co-developed checkout is edited in place. Add `--tests` to cover test-only
