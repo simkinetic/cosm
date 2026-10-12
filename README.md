@@ -196,6 +196,13 @@ Implemented for macOS and Linux: the full lifecycle — init → release → reg
 add → resolve → build → run → test → develop/free → upgrade/downgrade, plus
 **binary registries** (`publish` → consume with no source access, §8.5).
 
+Releasing is guarded end to end: `cosm release` runs a preflight and refuses before
+changing anything (`--dry-run` shows the plan), `release --plan` orders a
+co-developed stack's releases bottom-up, `registry check` confirms every registered
+version still resolves, `registry yank` retires a bad version without breaking anyone
+(and a registry's floor and removals survive later syncs), and `cosm verify` builds
+and tests a released version from the registries alone.
+
 `downgrade` runs the full MVS downgrade (§7.5): it lowers the target and
 cascade-downgrades any dependency that pins it higher to the highest compatible
 version, warning on each forced change; only a genuinely unsatisfiable dependency
