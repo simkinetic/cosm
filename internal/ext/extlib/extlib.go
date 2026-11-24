@@ -42,6 +42,11 @@ func Fatal(format string, a ...any) {
 
 // CopyTree copies src into dst, excluding .git, preserving structure and modes.
 func CopyTree(src, dst string) error {
+	// Copy what a symlinked src points to: filepath.WalkDir doesn't follow the root
+	// symlink, so a source reached through a link was copied as an empty tree.
+	if real, err := filepath.EvalSymlinks(src); err == nil {
+		src = real
+	}
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err

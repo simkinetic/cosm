@@ -54,6 +54,12 @@ func (o *Overlay) AddSource(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Use the real directory, as Build does for path-adopted units: the source path
+	// is handed to extensions and hashed, and a symlink there is easy to pass
+	// (dev/<name>@v<major> is one).
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = real
+	}
 	man, err := manifest.LoadManifestFromDir(abs)
 	if err != nil {
 		return "", err

@@ -125,7 +125,7 @@ func TestAddSourceOverridesWorkspace(t *testing.T) {
 	}
 
 	// A worktree of the same unit, elsewhere on disk.
-	wt := t.TempDir()
+	wt := realDir(t, t.TempDir()) // --source resolves symlinks (macOS: /var -> /private/var)
 	if err := manifest.SaveManifest(filepath.Join(wt, "cosm.json"), &types.Manifest{
 		Name: "foo", UUID: "u-foo", Version: "v0.2.0", Build: "lua",
 	}); err != nil {
@@ -162,7 +162,7 @@ func TestAddSourceUnenrolled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	src := t.TempDir()
+	src := realDir(t, t.TempDir()) // --source resolves symlinks (macOS: /var -> /private/var)
 	if err := manifest.SaveManifest(filepath.Join(src, "cosm.json"), &types.Manifest{
 		Name: "baz", UUID: "u-baz", Version: "v1.4.0", Build: "lua",
 	}); err != nil {
@@ -192,5 +192,41 @@ func TestAddSourceBadDir(t *testing.T) {
 	}
 	if _, err := ov.AddSource(t.TempDir()); err == nil {
 		t.Fatal("expected an error for a directory with no cosm.json")
+	}
+}
+
+// realDir resolves symlinks, the way --source does.
+func realDir(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// TestAddSourceResolvesSymlink: --source records the real directory, as the
+// enrolled develop path does, so extensions and hashing never see the link.
+func TestAddSourceResolvesSymlink(t *testing.T) {
+	d := depot.New(filepath.Join(t.TempDir(), ".cosm-depot"))
+	_ = os.MkdirAll(d.Dev(), 0o755)
+	_ = manifest.SaveWorkspace(d.WorkspaceFile(), &types.Workspace{})
+	ov, _, err := Build(d, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := realDir(t, t.TempDir())
+	if err := manifest.SaveManifest(filepath.Join(src, "cosm.json"), &types.Manifest{Name: "p", UUID: "u-p", Version: "v0.1.0", Build: "lua"}); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "p@v0")
+	if err := os.Symlink(src, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ov.AddSource(link); err != nil {
+		t.Fatal(err)
+	}
+	if _, path, _ := ov.Override("u-p", 0); path != src {
+		t.Errorf("source path = %q, want the real directory %q", path, src)
 	}
 }

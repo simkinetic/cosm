@@ -372,6 +372,14 @@ must be excluded, because the `.cosm/env` link to the project's own build prefix
 derived from this hash — including it made every activation re-point the link, change
 the hash, and force a rebuild.
 
+Both hashes walk the directory a **symlinked root** points to; symlinks below the root
+are hashed by their target string. (A walk that didn't follow the root link hashed a
+checkout reached through `dev/<name>@v<major>` or a symlinked `--source` path as an
+empty tree, giving every such checkout one build key regardless of content, so a stale
+build was reused.) As a tripwire, a working checkout whose hash is the empty-tree hash
+is refused rather than built or looked up: a package always contains `cosm.json`, so an
+empty tree means the wrong thing was hashed.
+
 ### 6.5 Moved-tag / tamper detection
 When `registry update` re-observes a tag whose commit differs from the recorded
 `commit`, or when a materialized tree's content hash differs from `tree`, the

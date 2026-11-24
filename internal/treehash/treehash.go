@@ -37,9 +37,24 @@ func Tree(root string) (string, error) { return walk(root, false) }
 // `cosm env`/`run`/`shell` re-pointed it, changed the tree, and forced a rebuild.
 func Live(root string) (string, error) { return walk(root, true) }
 
+// Empty is the hash of a tree with no entries. A package checkout always holds at
+// least its cosm.json, so getting Empty for one means the wrong thing was hashed.
+const Empty = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
 func walk(root string, skipCosmState bool) (string, error) {
+	// Hash what a symlinked root points to. filepath.WalkDir doesn't follow the
+	// root symlink, so a checkout reached through a link (a --path-adopted
+	// workspace unit like dev/<name>@v<major>, a --source path, a working
+	// directory entered via a link) hashed as an empty tree: one build key for any
+	// content, so a stale build was reused. Symlinks below the root are still
+	// hashed by their target string, as before.
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	root = real
 	var entries []entry
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

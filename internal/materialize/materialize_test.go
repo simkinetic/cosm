@@ -7,12 +7,14 @@ package materialize
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"cosm/internal/depot"
+	"cosm/internal/errs"
 	"cosm/internal/ext"
 	"cosm/internal/gitx"
 	"cosm/internal/types"
@@ -479,5 +481,51 @@ func TestEnvDoesNotRebuildRoot(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(proj, ".cosm", "env", "app@v0")); err != nil {
 		t.Fatalf("expected the project's own env link: %v", err)
+	}
+}
+
+// TestSymlinkedSourceRebuildsOnChange: the field bug. A develop/--source checkout
+// reached through a symlink (dev/<name>@v<major> is one) hashed as an empty tree,
+// so editing it never changed its build key and an old build was reused for
+// weeks. Through the symlink, an edit must now trigger a rebuild.
+func TestSymlinkedSourceRebuildsOnChange(t *testing.T) {
+	m, _, counter := newMat(t)
+	real := devDir(t, "a")
+	link := filepath.Join(t.TempDir(), "a@v1")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{
+		"u-a@v1": {Name: "a", UUID: "u-a", Major: 1, Version: "v1.0.0", Build: "fake", Develop: true, SourcePath: link},
+	}}
+	first, err := m.BuildAll(bl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "edit.lua"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.BuildAll(bl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["u-a@v1"].BuildKey == second["u-a@v1"].BuildKey {
+		t.Fatal("editing a checkout behind a symlink didn't change its build key: a stale build would be reused")
+	}
+	if n := countLines(t, counter); n != 2 {
+		t.Errorf("built %d times, want 2 (once per content)", n)
+	}
+}
+
+// TestEmptySourceRefused: a package checkout always has a cosm.json, so an empty
+// tree means the wrong thing was hashed. It must never select a cached build.
+func TestEmptySourceRefused(t *testing.T) {
+	m, _, _ := newMat(t)
+	bl := types.BuildList{Dependencies: map[string]types.BuildListEntry{
+		"u-a@v1": {Name: "a", UUID: "u-a", Major: 1, Version: "v1.0.0", Build: "fake", Develop: true, SourcePath: t.TempDir()},
+	}}
+	_, err := m.BuildAll(bl)
+	if !errors.Is(err, errs.ErrUsage) || !strings.Contains(err.Error(), "found no files to hash") {
+		t.Fatalf("want a refusal for an empty source, got %v", err)
 	}
 }

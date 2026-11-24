@@ -213,6 +213,14 @@ func (m *Materializer) buildNode(e types.BuildListEntry, built map[string]Built,
 		if tree, err = treehash.Live(e.SourcePath); err != nil {
 			return Built{}, false, err
 		}
+		// Tripwire: a package checkout always contains cosm.json, so an empty tree
+		// means the wrong thing was hashed. Never let it select a cached build: one
+		// "empty" key shared by every such checkout reused a stale build regardless
+		// of content.
+		if tree == treehash.Empty {
+			return Built{}, false, fmt.Errorf("%w: %s: found no files to hash in %s, so it can't be built reproducibly "+
+				"(a package checkout always contains a cosm.json)", errs.ErrUsage, e.Name, e.SourcePath)
+		}
 	}
 	seg := e.Commit
 	if e.Develop || seg == "" {

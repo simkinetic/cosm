@@ -60,3 +60,37 @@ func TestLiveIgnoresCosmState(t *testing.T) {
 		t.Error("a nested .cosm/ is source and must be hashed")
 	}
 }
+
+// TestSymlinkedRoot: a tree reached through a symlink hashes as the directory it
+// points to. filepath.WalkDir doesn't follow a symlinked root, so it used to hash
+// as an empty tree — one key for every such checkout, whatever its content.
+func TestSymlinkedRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "cosm.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	for name, fn := range map[string]func(string) (string, error){"Tree": Tree, "Live": Live} {
+		real, _ := fn(root)
+		via, err := fn(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if via != real || via == Empty {
+			t.Errorf("%s via symlink = %s, want %s (the target's hash)", name, via, real)
+		}
+	}
+	// Symlinks below the root are still hashed by their target string.
+	if err := os.Symlink("cosm.json", filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := Live(root)
+	_ = os.Remove(filepath.Join(root, "alias"))
+	_ = os.Symlink("elsewhere", filepath.Join(root, "alias"))
+	if after, _ := Live(root); after == before {
+		t.Error("a nested symlink's target must still be part of the hash")
+	}
+}

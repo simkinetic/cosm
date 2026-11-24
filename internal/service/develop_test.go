@@ -271,7 +271,7 @@ func TestResolveWithSources(t *testing.T) {
 	}
 
 	// A worktree of p elsewhere on disk.
-	wt := t.TempDir()
+	wt := realDir(t, t.TempDir()) // --source resolves symlinks (macOS: /var -> /private/var)
 	if err := manifest.SaveManifest(filepath.Join(wt, "cosm.json"),
 		&types.Manifest{Name: "p", UUID: "u-p", Version: "v1.0.0", Build: "lua"}); err != nil {
 		t.Fatal(err)
@@ -453,4 +453,14 @@ func TestMissingTransitiveNamed(t *testing.T) {
 	if _, _, _, err := other.Resolve(proj); err == nil || !strings.Contains(err.Error(), "transitive is enrolled for development") {
 		t.Errorf("legacy enrollment: name should come from the registry clone:\n%v", err)
 	}
+}
+
+// realDir resolves symlinks, the way --source does.
+func realDir(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }
